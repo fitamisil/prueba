@@ -3,3 +3,4 @@ uvicorn
 pymongo
 motor
 bcrypt
+python-jose[cryptography]
