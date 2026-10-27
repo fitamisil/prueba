@@ -172,8 +172,19 @@ async def init_emqx_background_tasks(db):
     print("--------------------------------------------------")
     print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
     await check_mqtt_superuser(db)
-    await create_emqx_v5_webhook_rule()
+    
+    # ⬇️ Agrégale un '#' al principio de esta línea para desactivarla:
+    # await create_emqx_v5_webhook_rule()
+    
     print("--------------------------------------------------")
+
+# async def init_emqx_background_tasks(db):
+#     await asyncio.sleep(2)
+#     print("--------------------------------------------------")
+#     print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
+#     await check_mqtt_superuser(db)
+#     await create_emqx_v5_webhook_rule()
+#     print("--------------------------------------------------")
 
 @app.on_event("startup")
 async def startup_event():
