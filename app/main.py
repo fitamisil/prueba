@@ -96,23 +96,20 @@ async def create_emqx_v5_webhook_rule():
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 2. Limpieza previa de la regla (la regla sí la borramos para recrearla limpia)
-            try:
-                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
-            except Exception:
-                pass
-
-            # 3. Crear o verificar Conector HTTP
+            # 2. Conector HTTP (Crear o Actualizar con PUT si ya existe)
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            conn_res = await client.post(f"{base_url}/connectors", json={
+            conn_payload = {
                 "name": "fastapi_connector", 
                 "type": "http", 
                 "url": public_api_url
-            }, headers=headers)
+            }
+            conn_res = await client.put(f"{base_url}/connectors/http/fastapi_connector", json=conn_payload, headers=headers)
+            if conn_res.status_code not in [200, 201]:
+                conn_res = await client.post(f"{base_url}/connectors", json=conn_payload, headers=headers)
             print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code}")
 
-            # 4. Crear o actualizar Acción con la ruta /saver-webhook
-            action_res = await client.post(f"{base_url}/actions", json={
+            # 3. Acción HTTP (Crear o Actualizar con PUT si ya existe)
+            action_payload = {
                 "name": "saver_hook_action", 
                 "type": "http", 
                 "connector": "fastapi_connector",
@@ -122,10 +119,18 @@ async def create_emqx_v5_webhook_rule():
                     "headers": {"token": EMQX_API_TOKEN}, 
                     "body": "${.}"
                 }
-            }, headers=headers)
+            }
+            action_res = await client.put(f"{base_url}/actions/http/saver_hook_action", json=action_payload, headers=headers)
+            if action_res.status_code not in [200, 201]:
+                action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
             print(f"[EMQX-ACTION] Status: {action_res.status_code}")
 
-            # 5. Crear la Regla SQL
+            # 4. Regla SQL (Borrar y recrear para asegurar que esté activa)
+            try:
+                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+            except Exception:
+                pass
+
             rule_res = await client.post(f"{base_url}/rules", json={
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
