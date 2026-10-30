@@ -4,3 +4,4 @@ pymongo
 motor
 bcrypt
 python-jose[cryptography]
+httpx
