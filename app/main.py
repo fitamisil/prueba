@@ -30,6 +30,7 @@ app.add_middleware(
 
 
 
+
 # Plan A: Lee la variable de entorno de Render (MONGO_URI)
 # Plan B: Si estás en tu PC y no la encuentra, usa directamente tu URL de Atlas
 MONGO_URL = os.getenv("MONGO_URI", "mongodb+srv://pigomezschneider_db_user:4WvulXjWAN5QBEBL@cluster0.rcvykvz.mongodb.net/?appName=Cluster0")
@@ -75,11 +76,16 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-
-# --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
+# para render
 async def create_emqx_v5_webhook_rule():
-    host = os.getenv("EMQX_API_HOST", "localhost")
-    base_url = f"http://{host}:18083/api/v5"
+    # Apuntamos directamente al servicio de EMQX en Render o a la variable de entorno
+    host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
+    base_url = f"https://{host}" # Render maneja HTTPS por defecto en su URL externa
+
+# # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
+# async def create_emqx_v5_webhook_rule():
+#     host = os.getenv("EMQX_API_HOST", "localhost")
+#     base_url = f"http://{host}:18083/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
@@ -100,12 +106,11 @@ async def create_emqx_v5_webhook_rule():
             await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
             print("[EMQX-CLEAN] Limpieza de recursos anteriores completada.")
 
-
-            # --- AQUÍ VA EL BLOQUE DEL CONECTOR ---
+            # para render
             connector_payload = {
                 "name": "fastapi_connector",
                 "type": "http",
-                "url": os.getenv("PUBLIC_API_URL", "http://localhost:8000")
+                "url": os.getenv("PUBLIC_API_URL", "https://tu-backend-fastapi.onrender.com")
             }
             # # 2. Creación del Connector HTTP (Base URL)
             # connector_payload = {
@@ -167,14 +172,16 @@ async def check_mqtt_superuser(db):
     except Exception as error:
         print("[DB-ERROR] Error creando superusuario MQTT:", error)
 
+# para render
+
 async def init_emqx_background_tasks(db):
     await asyncio.sleep(2)
     print("--------------------------------------------------")
     print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
     await check_mqtt_superuser(db)
     
-    # ⬇️ Agrégale un '#' al principio de esta línea para desactivarla:
-    # await create_emqx_v5_webhook_rule()
+    # Automatización activa para configurar EMQX al iniciar
+    await create_emqx_v5_webhook_rule()
     
     print("--------------------------------------------------")
 
