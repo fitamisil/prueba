@@ -1,6 +1,3 @@
-
-
-
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Header, status, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +12,7 @@ import random
 import os
 import asyncio
 import httpx
+import json
 
 app = FastAPI(title="IoT GL API", version="1.0.0")
 
@@ -60,6 +58,9 @@ def get_user_email_from_token(token: str = Header(None)):
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token no proporcionado")
     try:
+        # Limpiar prefijo 'Bearer ' si el frontend lo manda así
+        if token.startswith("Bearer "):
+            token = token.split(" ")[1]
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
@@ -130,11 +131,6 @@ async def create_emqx_v5_webhook_rule():
 
             print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
-            if rule_res.status_code in [200, 201] and conn_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡Conector HTTP y regla configurados y sincronizados por código con éxito!")
-            else:
-                print(f"[EMQX-WARN] Estado - Conector: {conn_res.status_code}, Regla: {rule_res.status_code}")
-                
     except Exception as error:
         print("[EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
 
@@ -370,26 +366,20 @@ async def get_device_credentials(body: DeviceCredentialsBody):
         "variables": variables
     }
 
-# SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN
+# SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN Y PARSEO ROBUSTO
 @app.post("/saver-webhook")
 @app.post("/api/saver-webhook")
 async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
-    print(f"\n🔥 [WEBHOOK HIT] ¡EMQX impactó el endpoint!")
-    print(f"   -> Token recibido en Header: '{token}' (Esperado: '{EMQX_API_TOKEN}')")
-    
     if token != EMQX_API_TOKEN:
-        print(f"❌ [WEBHOOK RECHAZADO] Token inválido. El webhook fue bloqueado.")
         raise HTTPException(status_code=404)
 
     try:
         request_data = await request.json()
     except Exception as e:
-        print(f"❌ [WEBHOOK ERROR] No se pudo parsear el JSON recibido: {e}")
         return {"status": "error", "message": "Invalid JSON"}
 
     topic = request_data.get("topic", "")
     data_user_id = request_data.get("userId")
-    print(f"   -> Tópico extraído: '{topic}'")
     splitted_topic = topic.split("/")
     
     if len(splitted_topic) >= 3:
@@ -403,10 +393,19 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
             real_user_id = device_found.get("userId", user_id)
             payload_val = request_data.get("payload", {})
             
-            if isinstance(payload_val, dict):
-                current_value = float(payload_val.get("value", 0))
-            else:
-                current_value = float(payload_val)
+            # Parseo ultra robusto de payload (diccionario, string JSON o número)
+            current_value = 0.0
+            try:
+                if isinstance(payload_val, dict):
+                    current_value = float(payload_val.get("value", 0))
+                elif isinstance(payload_val, str):
+                    parsed_payload = json.loads(payload_val)
+                    current_value = float(parsed_payload.get("value", 0))
+                else:
+                    current_value = float(payload_val)
+            except Exception as e:
+                print(f"❌ [PAYLOAD ERROR] No se pudo convertir el valor: {payload_val} -> {e}")
+                return {"status": "error", "message": "Invalid payload value"}
 
             # 1. Aplicar filtro de variación del 0.05%
             last_record = await data_collection.find_one(
@@ -423,7 +422,6 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
                     percent_change = 100.0 if current_value != 0 else 0.0
 
                 if percent_change < 0.05:
-                    print(f"🛡️ [FILTRO WEBHOOK] Dato descartado. Variación de {percent_change:.4f}% menor al 0.05% (dId: {dId}, var: {variable})")
                     return {"status": "filtered", "message": "Variation below 0.05%"}
 
             # 2. Guardar en MongoDB si pasa el umbral o es el primer registro
@@ -436,11 +434,7 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
                 "time": timestamp,
                 "path": f"/{real_user_id}/{dId}/{timestamp}/"
             })
-            print(f"✅ [DB SUCCESS] ¡DATO GUARDADO EN MONGODB! -> dId: {dId} | Var: {variable} | Valor: {current_value}\n")
-        else:
-            print(f"⚠️ [AVISO DB] El dispositivo dId={dId} no existe en MongoDB, se descarta el registro.")
-    else:
-        print(f"❌ [TÓPICO INVÁLIDO] El tópico '{topic}' no cumple con el formato de niveles mínimos.")
+            print(f"✅ [DB SUCCESS] ¡DATO GUARDADO! -> dId: {dId} | Var: {variable} | Valor: {current_value}")
             
     return {"status": "success"}
 
@@ -463,7 +457,6 @@ async def update_notification(body: NotificationUpdateBody, token: str = Header(
 @app.post("/api/getmqttcredentials")
 async def get_mqtt_credentials(token: str = Header(None)):
     return {"status": "success", "username": "admin", "password": "public"}
-
 
 # from datetime import datetime, timedelta, timezone
 # from fastapi import FastAPI, HTTPException, Header, status, Query
