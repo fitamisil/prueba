@@ -96,18 +96,13 @@ async def create_emqx_v5_webhook_rule():
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 2. Limpieza previa segura (protegida individualmente)
-            for endpoint in [
-                f"{base_url}/rules/saver_webhook_rule",
-                f"{base_url}/actions/saver_hook_action",
-                f"{base_url}/connectors/fastapi_connector"
-            ]:
-                try:
-                    await client.delete(endpoint, headers=headers)
-                except Exception:
-                    pass
+            # 2. Limpieza previa de la regla (la regla sí la borramos para recrearla limpia)
+            try:
+                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+            except Exception:
+                pass
 
-            # 3. Crear Conector HTTP
+            # 3. Crear o verificar Conector HTTP
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             conn_res = await client.post(f"{base_url}/connectors", json={
                 "name": "fastapi_connector", 
@@ -116,7 +111,7 @@ async def create_emqx_v5_webhook_rule():
             }, headers=headers)
             print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code}")
 
-            # 4. Crear Acción con la ruta LIMPIA /saver-webhook (sin /api/)
+            # 4. Crear o actualizar Acción con la ruta /saver-webhook
             action_res = await client.post(f"{base_url}/actions", json={
                 "name": "saver_hook_action", 
                 "type": "http", 
@@ -139,12 +134,14 @@ async def create_emqx_v5_webhook_rule():
             print(f"[EMQX-RULE] Status: {rule_res.status_code}")
             
             if rule_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡FastAPI creó la regla y el webhook en EMQX automáticamente con éxito!")
+                print("[EMQX-SUCCESS] ¡FastAPI configuró y creó la regla y el webhook en EMQX con éxito absoluto!")
             else:
-                print(f"[EMQX-WARN] No se pudo crear la regla: {rule_res.text}")
+                print(f"[EMQX-WARN] Estado de la regla: {rule_res.text}")
                 
     except Exception as error:
         print("[EMQX-EXCEPTION] Error al configurar EMQX:", error)
+
+
 # # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
 # async def create_emqx_v5_webhook_rule():
 #     host = os.getenv("EMQX_API_HOST", "localhost")
