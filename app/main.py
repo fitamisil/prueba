@@ -64,7 +64,6 @@ def get_user_email_from_token(token: str = Header(None)):
         return email
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
     base_url = f"https://{host}/api/v5"
@@ -84,26 +83,17 @@ async def create_emqx_v5_webhook_rule():
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 2. Limpieza completa previa en orden inverso (Regla -> Acción -> Conector)
-            try:
-                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
-                await client.delete(f"{base_url}/actions/saver_hook_action", headers=headers)
-                await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
-                print("[EMQX-CLEAN] Recursos anteriores de EMQX eliminados correctamente para una recreación limpia.")
-            except Exception as e:
-                print(f"[EMQX-CLEAN-INFO] Nota durante la limpieza: {e}")
-
-            # 3. Crear Conector HTTP
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            conn_res = await client.post(f"{base_url}/connectors", json={
-                "name": "fastapi_connector", 
-                "type": "http", 
-                "url": public_api_url
-            }, headers=headers)
+
+            # 2. Conector: Intentamos crearlo. Si ya existe (400), lo actualizamos directamente con PUT.
+            connector_payload = {"name": "fastapi_connector", "type": "http", "url": public_api_url}
+            conn_res = await client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
+            if conn_res.status_code == 400:
+                conn_res = await client.put(f"{base_url}/connectors/fastapi_connector", json=connector_payload, headers=headers)
             print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code}")
 
-            # 4. Crear Acción HTTP
-            action_res = await client.post(f"{base_url}/actions", json={
+            # 3. Acción: Intentamos crearla. Si ya existe (400), la actualizamos con PUT.
+            action_payload = {
                 "name": "saver_hook_action", 
                 "type": "http", 
                 "connector": "fastapi_connector",
@@ -113,10 +103,18 @@ async def create_emqx_v5_webhook_rule():
                     "headers": {"token": EMQX_API_TOKEN}, 
                     "body": "${.}"
                 }
-            }, headers=headers)
+            }
+            action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
+            if action_res.status_code == 400:
+                action_res = await client.put(f"{base_url}/actions/saver_hook_action", json=action_payload, headers=headers)
             print(f"[EMQX-ACTION] Status: {action_res.status_code}")
 
-            # 5. Crear la Regla SQL
+            # 4. Regla: La borramos primero por si cambió el SQL, y la creamos fresca de cero.
+            try:
+                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+            except Exception:
+                pass
+
             rule_res = await client.post(f"{base_url}/rules", json={
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
@@ -125,7 +123,7 @@ async def create_emqx_v5_webhook_rule():
             print(f"[EMQX-RULE] Status: {rule_res.status_code}")
             
             if rule_res.status_code in [200, 201] and conn_res.status_code in [200, 201] and action_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡FastAPI configuró y creó el conector, acción y regla en EMQX con éxito absoluto!")
+                print("[EMQX-SUCCESS] ¡FastAPI configuró el conector, acción y regla en EMQX con éxito absoluto!")
             else:
                 print(f"[EMQX-WARN] Detalle - Conector: {conn_res.status_code}, Acción: {action_res.status_code}, Regla: {rule_res.status_code}")
                 
