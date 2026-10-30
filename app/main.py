@@ -77,15 +77,14 @@ def get_user_email_from_token(token: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 # para render
+
 async def create_emqx_v5_webhook_rule():
-    # Definimos el host limpio sin puertos ni diagonales finales
+    # Usamos la URL limpia sin puertos raros
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
-    
-    # EMQX expone su API REST de administración y v5 en el puerto 18083 por defecto
-    base_url = f"https://{host}:18083/api/v5"
+    base_url = f"https://{host}/api/v5"
     
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-    password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123") # O la clave actual de tu admin en EMQX
+    password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
     print("[EMQX-INIT] Conectando con la API REST de EMQX v5...")
     try:
@@ -98,55 +97,27 @@ async def create_emqx_v5_webhook_rule():
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 1. Limpieza en orden inverso (Regla -> Acción -> Conector)
+            # Limpieza y creación automática
             await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
             await client.delete(f"{base_url}/actions/saver_hook_action", headers=headers)
             await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
-            print("[EMQX-CLEAN] Limpieza de recursos anteriores completada.")
 
-            # 2. Creación del Connector HTTP apuntando a tu backend en Render
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            connector_payload = {
-                "name": "fastapi_connector",
-                "type": "http",
-                "url": public_api_url
-            }
-            conn_res = await client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
-            print(f"[EMQX-CONNECTOR] Creación de Conector: {conn_res.status_code} | Cuerpo: {conn_res.text}")
-
-            # 3. Creación de la Action (Método POST y ruta del webhook)
-            action_payload = {
-                "name": "saver_hook_action",
-                "type": "http",
-                "connector": "fastapi_connector",
-                "parameters": {
-                    "method": "post",
-                    "path": "/api/saver-webhook",
-                    "headers": {
-                        "token": EMQX_API_TOKEN
-                    },
-                    "body": "${.}"
-                }
-            }
-            action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
-            print(f"[EMQX-ACTION] Creación de Acción: {action_res.status_code} | Cuerpo: {action_res.text}")
-
-            # 4. Creación de la Regla SQL que captura la telemetría de los dispositivos
-            rule_payload = {
-                "id": "saver_webhook_rule",
-                "sql": "SELECT * FROM \"+/+/+/sdata\"",
-                "actions": ["http:saver_hook_action"],
-                "description": "Regla automatizada de FastAPI para guardar datos de sensores"
-            }
-            rule_res = await client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-            print(f"[EMQX-RULE] Creación de Regla: {rule_res.status_code} | Cuerpo: {rule_res.text}")
+            conn_res = await client.post(f"{base_url}/connectors", json={"name": "fastapi_connector", "type": "http", "url": public_api_url}, headers=headers)
             
-            if rule_res.status_code in [200, 201] and action_res.status_code in [200, 201] and conn_res.status_code in [200, 201, 400]:
-                print("[EMQX-SUCCESS] ¡Conector, Acción y Regla configurados en EMQX v5 con éxito absoluto!")
-            else:
-                print("[EMQX-WARN] Hubo una discrepancia en la creación automática de EMQX.")
+            action_res = await client.post(f"{base_url}/actions", json={
+                "name": "saver_hook_action", "type": "http", "connector": "fastapi_connector",
+                "parameters": {"method": "post", "path": "/api/saver-webhook", "headers": {"token": EMQX_API_TOKEN}, "body": "${.}"}
+            }, headers=headers)
+
+            rule_res = await client.post(f"{base_url}/rules", json={
+                "id": "saver_webhook_rule", "sql": "SELECT * FROM \"+/+/+/sdata\"", "actions": ["http:saver_hook_action"]
+            }, headers=headers)
+            
+            if rule_res.status_code in [200, 201]:
+                print("[EMQX-SUCCESS] ¡Regla y webhook configurados automáticamente con éxito!")
     except Exception as error:
-        print("[EMQX-EXCEPTION] Error crítico conectando con EMQX:", error)
+        print("[EMQX-EXCEPTION] Error conectando con EMQX:", error)
 
 # # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
 # async def create_emqx_v5_webhook_rule():
