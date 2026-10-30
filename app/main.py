@@ -78,23 +78,21 @@ def get_user_email_from_token(token: str = Header(None)):
 
 # para render
 async def create_emqx_v5_webhook_rule():
-    # Apuntamos directamente al servicio de EMQX en Render o a la variable de entorno
+    # Definimos el host limpio sin puertos ni diagonales finales
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
-    base_url = f"https://{host}" # Render maneja HTTPS por defecto en su URL externa
-
-# # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
-# async def create_emqx_v5_webhook_rule():
-#     host = os.getenv("EMQX_API_HOST", "localhost")
-#     base_url = f"http://{host}:18083/api/v5"
+    
+    # EMQX expone su API REST de administración y v5 en el puerto 18083 por defecto
+    base_url = f"https://{host}:18083/api/v5"
+    
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-    password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123") # O la clave actual de tu admin en EMQX
 
     print("[EMQX-INIT] Conectando con la API REST de EMQX v5...")
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
             login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
             if login_res.status_code != 200:
-                print(f"[EMQX-ERROR] Autenticación fallida en EMQX: {login_res.status_code}")
+                print(f"[EMQX-ERROR] Autenticación fallida en EMQX: {login_res.status_code} - {login_res.text}")
                 return
             
             token = login_res.json().get("token") or login_res.json().get("access_token")
@@ -106,22 +104,17 @@ async def create_emqx_v5_webhook_rule():
             await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
             print("[EMQX-CLEAN] Limpieza de recursos anteriores completada.")
 
-            # para render
+            # 2. Creación del Connector HTTP apuntando a tu backend en Render
+            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             connector_payload = {
                 "name": "fastapi_connector",
                 "type": "http",
-                "url": os.getenv("PUBLIC_API_URL", "https://tu-backend-fastapi.onrender.com")
+                "url": public_api_url
             }
-            # # 2. Creación del Connector HTTP (Base URL)
-            # connector_payload = {
-            #     "name": "fastapi_connector",
-            #     "type": "http",
-            #     "url": "http://localhost:8000"
-            # }
             conn_res = await client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
             print(f"[EMQX-CONNECTOR] Creación de Conector: {conn_res.status_code} | Cuerpo: {conn_res.text}")
 
-            # 3. Creación de la Action (Método en minúscula 'post')
+            # 3. Creación de la Action (Método POST y ruta del webhook)
             action_payload = {
                 "name": "saver_hook_action",
                 "type": "http",
@@ -138,7 +131,7 @@ async def create_emqx_v5_webhook_rule():
             action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
             print(f"[EMQX-ACTION] Creación de Acción: {action_res.status_code} | Cuerpo: {action_res.text}")
 
-            # 4. Creación de la Regla SQL
+            # 4. Creación de la Regla SQL que captura la telemetría de los dispositivos
             rule_payload = {
                 "id": "saver_webhook_rule",
                 "sql": "SELECT * FROM \"+/+/+/sdata\"",
@@ -154,6 +147,79 @@ async def create_emqx_v5_webhook_rule():
                 print("[EMQX-WARN] Hubo una discrepancia en la creación automática de EMQX.")
     except Exception as error:
         print("[EMQX-EXCEPTION] Error crítico conectando con EMQX:", error)
+
+# # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
+# async def create_emqx_v5_webhook_rule():
+#     host = os.getenv("EMQX_API_HOST", "localhost")
+#     base_url = f"http://{host}:18083/api/v5"
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+
+#     print("[EMQX-INIT] Conectando con la API REST de EMQX v5...")
+#     try:
+#         async with httpx.AsyncClient() as client:
+#             login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
+#             if login_res.status_code != 200:
+#                 print(f"[EMQX-ERROR] Autenticación fallida en EMQX: {login_res.status_code}")
+#                 return
+            
+#             token = login_res.json().get("token") or login_res.json().get("access_token")
+#             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+#             # 1. Limpieza en orden inverso (Regla -> Acción -> Conector)
+#             await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+#             await client.delete(f"{base_url}/actions/saver_hook_action", headers=headers)
+#             await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
+#             print("[EMQX-CLEAN] Limpieza de recursos anteriores completada.")
+
+#             # para render
+#             connector_payload = {
+#                 "name": "fastapi_connector",
+#                 "type": "http",
+#                 "url": os.getenv("PUBLIC_API_URL", "https://tu-backend-fastapi.onrender.com")
+#             }
+#             # # 2. Creación del Connector HTTP (Base URL)
+#             # connector_payload = {
+#             #     "name": "fastapi_connector",
+#             #     "type": "http",
+#             #     "url": "http://localhost:8000"
+#             # }
+#             conn_res = await client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
+#             print(f"[EMQX-CONNECTOR] Creación de Conector: {conn_res.status_code} | Cuerpo: {conn_res.text}")
+
+#             # 3. Creación de la Action (Método en minúscula 'post')
+#             action_payload = {
+#                 "name": "saver_hook_action",
+#                 "type": "http",
+#                 "connector": "fastapi_connector",
+#                 "parameters": {
+#                     "method": "post",
+#                     "path": "/api/saver-webhook",
+#                     "headers": {
+#                         "token": EMQX_API_TOKEN
+#                     },
+#                     "body": "${.}"
+#                 }
+#             }
+#             action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
+#             print(f"[EMQX-ACTION] Creación de Acción: {action_res.status_code} | Cuerpo: {action_res.text}")
+
+#             # 4. Creación de la Regla SQL
+#             rule_payload = {
+#                 "id": "saver_webhook_rule",
+#                 "sql": "SELECT * FROM \"+/+/+/sdata\"",
+#                 "actions": ["http:saver_hook_action"],
+#                 "description": "Regla automatizada de FastAPI para guardar datos de sensores"
+#             }
+#             rule_res = await client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+#             print(f"[EMQX-RULE] Creación de Regla: {rule_res.status_code} | Cuerpo: {rule_res.text}")
+            
+#             if rule_res.status_code in [200, 201] and action_res.status_code in [200, 201] and conn_res.status_code in [200, 201, 400]:
+#                 print("[EMQX-SUCCESS] ¡Conector, Acción y Regla configurados en EMQX v5 con éxito absoluto!")
+#             else:
+#                 print("[EMQX-WARN] Hubo una discrepancia en la creación automática de EMQX.")
+#     except Exception as error:
+#         print("[EMQX-EXCEPTION] Error crítico conectando con EMQX:", error)
 
 async def check_mqtt_superuser(db):
     try:
