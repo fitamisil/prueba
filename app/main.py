@@ -339,32 +339,62 @@ async def get_small_charts_data(
         print("[DB-ERROR] Error consultando gráficos:", error)
         return []
 
-@app.post("/getdevicecredentials")
-@app.post("/api/getdevicecredentials")
-async def get_device_credentials(body: DeviceCredentialsBody):
-    device = await devices_collection.find_one({"dId": body.dId})
-    if not device:
-        raise HTTPException(status_code=401)
-    userId = device.get("userId")
-    credentials = await get_device_mqtt_credentials(body.dId, userId)
-    template = await templates_collection.find_one({"_id": ObjectId(device["templateId"])}) if "templateId" in device else None
-    
-    variables = []
-    if template and "widgets" in template:
-        for widget in template["widgets"]:
-            variables.append({
-                "variable": widget.get("variable"),
-                "variableFullName": widget.get("variableFullName"),
-                "variableType": widget.get("variableType"),
-                "variableSendFreq": widget.get("variableSendFreq")
-            })
 
-    return {
-        "username": credentials["username"],
-        "password": credentials["password"],
-        "topic": f"{userId}/{body.dId}/",
-        "variables": variables
-    }
+@app.get("/get-small-charts-data")
+@app.get("/api/get-small-charts-data")
+async def get_small_charts_data(
+    chartTimeAgo: int = Query(...),
+    dId: str = Query(...),
+    variable: str = Query(...),
+    token: str = Header(None)
+):
+    user_email = get_user_email_from_token(token)
+    try:
+        time_ago_ms = int(time.time() * 1000) - (max(chartTimeAgo, 1440) * 60 * 1000)
+
+        cursor = data_collection.find({
+            "dId": dId,
+            "variable": variable,
+            "time": {"$gt": time_ago_ms}
+        }).sort("time", 1)
+
+        data = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            data.append(doc)
+
+        # Devolvemos la lista directamente porque el componente Rtnumberchart.vue espera un array puro
+        return data
+    except Exception as error:
+        print("[DB-ERROR] Error consultando gráficos:", error)
+        return []
+
+# @app.post("/getdevicecredentials")
+# @app.post("/api/getdevicecredentials")
+# async def get_device_credentials(body: DeviceCredentialsBody):
+#     device = await devices_collection.find_one({"dId": body.dId})
+#     if not device:
+#         raise HTTPException(status_code=401)
+#     userId = device.get("userId")
+#     credentials = await get_device_mqtt_credentials(body.dId, userId)
+#     template = await templates_collection.find_one({"_id": ObjectId(device["templateId"])}) if "templateId" in device else None
+    
+#     variables = []
+#     if template and "widgets" in template:
+#         for widget in template["widgets"]:
+#             variables.append({
+#                 "variable": widget.get("variable"),
+#                 "variableFullName": widget.get("variableFullName"),
+#                 "variableType": widget.get("variableType"),
+#                 "variableSendFreq": widget.get("variableSendFreq")
+#             })
+
+#     return {
+#         "username": credentials["username"],
+#         "password": credentials["password"],
+#         "topic": f"{userId}/{body.dId}/",
+#         "variables": variables
+#     }
 
 # SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN Y PARSEO ROBUSTO
 @app.post("/saver-webhook")
