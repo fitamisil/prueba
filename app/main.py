@@ -374,13 +374,27 @@ async def get_device_credentials(body: DeviceCredentialsBody):
 # SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN
 @app.post("/saver-webhook")
 @app.post("/api/saver-webhook")
-async def saver_webhook(request_data: dict, token: Optional[str] = Header(None)):
+
+from fastapi import Request, HTTPException, Header
+from typing import Optional
+import time
+
+@app.post("/saver-webhook")
+@app.post("/api/saver-webhook")
+
+async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
     print(f"\n🔥 [WEBHOOK HIT] ¡EMQX impactó el endpoint!")
     print(f"   -> Token recibido en Header: '{token}' (Esperado: '{EMQX_API_TOKEN}')")
     
     if token != EMQX_API_TOKEN:
         print(f"❌ [WEBHOOK RECHAZADO] Token inválido. El webhook fue bloqueado.")
         raise HTTPException(status_code=404)
+
+    try:
+        request_data = await request.json()
+    except Exception as e:
+        print(f"❌ [WEBHOOK ERROR] No se pudo parsear el JSON recibido: {e}")
+        return {"status": "error", "message": "Invalid JSON"}
 
     topic = request_data.get("topic", "")
     data_user_id = request_data.get("userId")
@@ -397,7 +411,12 @@ async def saver_webhook(request_data: dict, token: Optional[str] = Header(None))
         if device_found:
             real_user_id = device_found.get("userId", user_id)
             payload_val = request_data.get("payload", {})
-            current_value = float(payload_val.get("value") if isinstance(payload_val, dict) else payload_val)
+            
+            # Manejo seguro por si el payload viene anidado como dict o como valor directo
+            if isinstance(payload_val, dict):
+                current_value = float(payload_val.get("value", 0))
+            else:
+                current_value = float(payload_val)
 
             # 1. Aplicar filtro de variación del 0.05%
             last_record = await data_collection.find_one(
