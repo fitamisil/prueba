@@ -66,9 +66,14 @@ def get_user_email_from_token(token: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 async def create_emqx_v5_webhook_rule():
-    host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
-    base_url = f"http://{host}/api/v5"  # <-- Usando http hacia Tailscale
+    host = os.getenv("EMQX_API_HOST", "https://egg-des-prospect-damaged.trycloudflare.com")
     
+    # Valida y arma la URL base limpiamente sin duplicar protocolos
+    if host.startswith("http://") or host.startswith("https://"):
+        base_url = f"{host}/api/v5"
+    else:
+        base_url = f"http://{host}/api/v5"
+        
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
@@ -78,7 +83,7 @@ async def create_emqx_v5_webhook_rule():
             # 1. Login
             try:
                 login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
-                print(f"[EMQX-LOGIN-RES] Status: {login_res.status_code} - Body: {login_res.text}")
+                print(f"[EMQX-LOGIN-RES] Status: {login_res.status_code} Body: {login_res.text}")
             except Exception as e:
                 print(f"[EMQX-WARN] No se pudo contactar a EMQX (posible timeout o error de red): {e}")
                 return
@@ -115,7 +120,7 @@ async def create_emqx_v5_webhook_rule():
 
             # Creamos el Bridge HTTP
             bridge_res = await client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
-            print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code} - Resp: {bridge_res.text}")
+            print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
 
             # 3. Creamos la Regla SQL asociada al Bridge
             rule_res = await client.post(f"{base_url}/rules", json={
@@ -123,7 +128,7 @@ async def create_emqx_v5_webhook_rule():
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
                 "actions": ["webhook:saver_webhook_bridge"]
             }, headers=headers)
-            print(f"[EMQX-RULE] Status: {rule_res.status_code} - Resp: {rule_res.text}")
+            print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
             if rule_res.status_code in [200, 201] and bridge_res.status_code in [200, 201]:
                 print("[EMQX-SUCCESS] ¡Webhook y regla configurados automáticamente en EMQX v5 con éxito absoluto!")
