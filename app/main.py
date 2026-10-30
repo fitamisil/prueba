@@ -64,10 +64,10 @@ def get_user_email_from_token(token: str = Header(None)):
         return email
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
+        
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
-    base_url = f"http://{host}/api/v5"  # <-- Cambiado a http
+    base_url = f"http://{host}/api/v5"  # <-- Usando http hacia Tailscale
     
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
@@ -78,8 +78,9 @@ async def create_emqx_v5_webhook_rule():
             # 1. Login
             try:
                 login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
+                print(f"[EMQX-LOGIN-RES] Status: {login_res.status_code} - Body: {login_res.text}")
             except Exception as e:
-                print(f"[EMQX-WARN] No se pudo contactar a EMQX: {e}")
+                print(f"[EMQX-WARN] No se pudo contactar a EMQX (posible timeout o error de red): {e}")
                 return
 
             if login_res.status_code != 200:
@@ -87,8 +88,11 @@ async def create_emqx_v5_webhook_rule():
                 return
             
             token = login_res.json().get("token") or login_res.json().get("access_token")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            if not token:
+                print(f"[EMQX-ERROR] No se pudo extraer el token de acceso del JSON de respuesta: {login_res.text}")
+                return
 
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
             # 2. En EMQX v5, los Webhooks HTTP se configuran mediante Bridges (`/bridges`)
@@ -101,16 +105,17 @@ async def create_emqx_v5_webhook_rule():
                 "body": "${.}"
             }
 
-            # Intentamos borrar el bridge anterior si existe para evitar conflictos
+            # Intentamos borrar el bridge y la regla anterior si existen para evitar conflictos
             try:
-                await client.delete(f"{base_url}/bridges/webhook:saver_webhook_bridge", headers=headers)
-                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
-            except Exception:
-                pass
+                del_bridge = await client.delete(f"{base_url}/bridges/webhook:saver_webhook_bridge", headers=headers)
+                del_rule = await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+                print(f"[EMQX-CLEANUP] Borrado previo - Bridge Status: {del_bridge.status_code}, Rule Status: {del_rule.status_code}")
+            except Exception as clean_err:
+                print(f"[EMQX-CLEANUP-INFO] No había elementos previos o falló la limpieza: {clean_err}")
 
             # Creamos el Bridge HTTP
             bridge_res = await client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
-            print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code}")
+            print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code} - Resp: {bridge_res.text}")
 
             # 3. Creamos la Regla SQL asociada al Bridge
             rule_res = await client.post(f"{base_url}/rules", json={
@@ -118,15 +123,15 @@ async def create_emqx_v5_webhook_rule():
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
                 "actions": ["webhook:saver_webhook_bridge"]
             }, headers=headers)
-            print(f"[EMQX-RULE] Status: {rule_res.status_code}")
+            print(f"[EMQX-RULE] Status: {rule_res.status_code} - Resp: {rule_res.text}")
             
             if rule_res.status_code in [200, 201] and bridge_res.status_code in [200, 201]:
                 print("[EMQX-SUCCESS] ¡Webhook y regla configurados automáticamente en EMQX v5 con éxito absoluto!")
             else:
-                print(f"[EMQX-WARN] Detalle - Bridge: {bridge_res.status_code}, Regla: {rule_res.status_code} | Resp: {rule_res.text}")
+                print(f"[EMQX-WARN] Detalle - Bridge: {bridge_res.status_code}, Regla: {rule_res.status_code}")
                 
     except Exception as error:
-        print("[EMQX-EXCEPTION] Error general al configurar EMQX:", error)
+        print("[EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
 
 async def check_mqtt_superuser(db):
     try:
