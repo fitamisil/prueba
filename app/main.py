@@ -84,42 +84,39 @@ async def create_emqx_v5_webhook_rule():
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
-    print(f"[EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}...")
+    print(f"[EMQX-INIT] Conectando a la API de EMQX en: {base_url}...")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            # 1. Login a la API de EMQX v5
+        async with httpx.AsyncClient(verify=False, timeout=20.0) as client:
+            # 1. Login
             login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
-            print(f"[EMQX-LOGIN] Status code: {login_res.status_code}")
-            
             if login_res.status_code != 200:
-                print(f"[EMQX-ERROR] Autenticación fallida en EMQX: {login_res.text}. Revisa tus credenciales de dashboard.")
+                print(f"[EMQX-ERROR] Login fallido en EMQX ({login_res.status_code}): {login_res.text}")
                 return
             
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 2. Borrado seguro de recursos anteriores (si existen)
+            # 2. Limpieza previa segura (protegida individualmente)
             for endpoint in [
                 f"{base_url}/rules/saver_webhook_rule",
                 f"{base_url}/actions/saver_hook_action",
                 f"{base_url}/connectors/fastapi_connector"
             ]:
                 try:
-                    del_res = await client.delete(endpoint, headers=headers)
-                    print(f"[EMQX-CLEAN] Eliminando {endpoint} -> Status: {del_res.status_code}")
-                except Exception as e:
-                    print(f"[EMQX-CLEAN-WARN] No se pudo borrar {endpoint}: {e}")
+                    await client.delete(endpoint, headers=headers)
+                except Exception:
+                    pass
 
-            # 3. Creación del Conector HTTP
+            # 3. Crear Conector HTTP
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             conn_res = await client.post(f"{base_url}/connectors", json={
                 "name": "fastapi_connector", 
                 "type": "http", 
                 "url": public_api_url
             }, headers=headers)
-            print(f"[EMQX-CONNECTOR] Creación: {conn_res.status_code} | Res: {conn_res.text}")
-            
-            # 4. Creación de la Acción apuntando EXACTAMENTE a /saver-webhook (sin /api/)
+            print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code}")
+
+            # 4. Crear Acción con la ruta LIMPIA /saver-webhook (sin /api/)
             action_res = await client.post(f"{base_url}/actions", json={
                 "name": "saver_hook_action", 
                 "type": "http", 
@@ -131,23 +128,23 @@ async def create_emqx_v5_webhook_rule():
                     "body": "${.}"
                 }
             }, headers=headers)
-            print(f"[EMQX-ACTION] Creación: {action_res.status_code} | Res: {action_res.text}")
+            print(f"[EMQX-ACTION] Status: {action_res.status_code}")
 
-            # 5. Creación de la Regla SQL
+            # 5. Crear la Regla SQL
             rule_res = await client.post(f"{base_url}/rules", json={
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
                 "actions": ["http:saver_hook_action"]
             }, headers=headers)
-            print(f"[EMQX-RULE] Creación: {rule_res.status_code} | Res: {rule_res.text}")
+            print(f"[EMQX-RULE] Status: {rule_res.status_code}")
             
             if rule_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡ FastAPI configuró y creó la regla y el webhook en EMQX con éxito absoluto !")
+                print("[EMQX-SUCCESS] ¡FastAPI creó la regla y el webhook en EMQX automáticamente con éxito!")
             else:
-                print("[EMQX-WARN] La regla no se pudo crear correctamente por código.")
+                print(f"[EMQX-WARN] No se pudo crear la regla: {rule_res.text}")
                 
     except Exception as error:
-        print("[EMQX-EXCEPTION] Error crítico conectando con la API de EMQX:", error)
+        print("[EMQX-EXCEPTION] Error al configurar EMQX:", error)
 # # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
 # async def create_emqx_v5_webhook_rule():
 #     host = os.getenv("EMQX_API_HOST", "localhost")
