@@ -79,7 +79,7 @@ async def create_emqx_v5_webhook_rule():
     print(f"[EMQX-INIT] Conectando a la API de EMQX en: {base_url}...")
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            # 1. Login
+            # 1. Login para obtener el token Bearer
             try:
                 login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
             except Exception as e:
@@ -98,8 +98,8 @@ async def create_emqx_v5_webhook_rule():
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-            # 2. Creamos o Actualizamos el Bridge HTTP (Sin borrados previos)
-            bridge_payload = {
+            # 2. Configuración del Webhook unificado para EMQX v5 (/bridges)
+            webhook_payload = {
                 "name": "saver_webhook_bridge",
                 "type": "webhook",
                 "url": f"{public_api_url}/saver-webhook",
@@ -108,15 +108,15 @@ async def create_emqx_v5_webhook_rule():
                 "body": "${.}"
             }
 
-            bridge_res = await client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+            # Intentamos crearlo; si ya existe, actualizamos con PUT
+            bridge_res = await client.post(f"{base_url}/bridges", json=webhook_payload, headers=headers)
             if bridge_res.status_code not in [200, 201]:
-                bridge_res = await client.put(f"{base_url}/bridges/webhook:saver_webhook_bridge", json=bridge_payload, headers=headers)
+                bridge_res = await client.put(f"{base_url}/bridges/webhook:saver_webhook_bridge", json=webhook_payload, headers=headers)
             
             print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
-
             await asyncio.sleep(1)
 
-            # 3. Creamos o Actualizamos la Regla SQL asociada (Sin borrados previos)
+            # 3. Creamos o actualizamos la regla asociada al webhook
             rule_payload = {
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
@@ -130,13 +130,13 @@ async def create_emqx_v5_webhook_rule():
             print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
             if rule_res.status_code in [200, 201] and bridge_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡Webhook y regla sincronizados en EMQX v5 con éxito absoluto!")
+                print("[EMQX-SUCCESS] ¡Webhook, conector y regla configurados por código con éxito absoluto!")
             else:
                 print(f"[EMQX-WARN] Estado - Bridge: {bridge_res.status_code}, Regla: {rule_res.status_code}")
                 
     except Exception as error:
         print("[EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
-
+        
 async def check_mqtt_superuser(db):
     try:
         collection = db["emqxauthrules"]
