@@ -98,29 +98,31 @@ async def create_emqx_v5_webhook_rule():
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-            # 2. Configuración del Webhook unificado para EMQX v5 (/bridges)
-            webhook_payload = {
+            # 2. Conector HTTP exacto apuntando al endpoint /saver-webhook
+            connector_payload = {
                 "name": "saver_webhook_bridge",
-                "type": "webhook",
+                "type": "http",
                 "url": f"{public_api_url}/saver-webhook",
-                "method": "POST",
+                "method": "post",
                 "headers": {"token": EMQX_API_TOKEN},
-                "body": "${.}"
+                "body": "${.}",
+                "connect_timeout": "15s",
+                "pool_size": 8
             }
 
-            # Intentamos crearlo; si ya existe, actualizamos con PUT
-            bridge_res = await client.post(f"{base_url}/bridges", json=webhook_payload, headers=headers)
-            if bridge_res.status_code not in [200, 201]:
-                bridge_res = await client.put(f"{base_url}/bridges/webhook:saver_webhook_bridge", json=webhook_payload, headers=headers)
+            # Creamos o actualizamos el conector en EMQX v5
+            conn_res = await client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+            if conn_res.status_code not in [200, 201]:
+                conn_res = await client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
             
-            print(f"[EMQX-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
+            print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
             await asyncio.sleep(1)
 
-            # 3. Creamos o actualizamos la regla asociada al webhook
+            # 3. Creamos o actualizamos la Regla SQL asociada
             rule_payload = {
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
-                "actions": ["webhook:saver_webhook_bridge"]
+                "actions": ["http:saver_webhook_bridge"]
             }
 
             rule_res = await client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
@@ -129,14 +131,14 @@ async def create_emqx_v5_webhook_rule():
 
             print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
-            if rule_res.status_code in [200, 201] and bridge_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡Webhook, conector y regla configurados por código con éxito absoluto!")
+            if rule_res.status_code in [200, 201] and conn_res.status_code in [200, 201]:
+                print("[EMQX-SUCCESS] ¡Conector HTTP y regla configurados y sincronizados por código con éxito!")
             else:
-                print(f"[EMQX-WARN] Estado - Bridge: {bridge_res.status_code}, Regla: {rule_res.status_code}")
+                print(f"[EMQX-WARN] Estado - Conector: {conn_res.status_code}, Regla: {rule_res.status_code}")
                 
     except Exception as error:
         print("[EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
-        
+
 async def check_mqtt_superuser(db):
     try:
         collection = db["emqxauthrules"]
@@ -369,44 +371,63 @@ async def get_device_credentials(body: DeviceCredentialsBody):
         "variables": variables
     }
 
+# SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN
 @app.post("/saver-webhook")
 @app.post("/api/saver-webhook")
 async def saver_webhook(request_data: dict, token: Optional[str] = Header(None)):
     print(f"\n🔥 [WEBHOOK HIT] ¡EMQX impactó el endpoint!")
     print(f"   -> Token recibido en Header: '{token}' (Esperado: '{EMQX_API_TOKEN}')")
-    print(f"   -> Payload recibido de EMQX: {request_data}")
     
     if token != EMQX_API_TOKEN:
         print(f"❌ [WEBHOOK RECHAZADO] Token inválido. El webhook fue bloqueado.")
         raise HTTPException(status_code=404)
 
     topic = request_data.get("topic", "")
+    data_user_id = request_data.get("userId")
     print(f"   -> Tópico extraído: '{topic}'")
     splitted_topic = topic.split("/")
     
     if len(splitted_topic) >= 3:
-        user_id = splitted_topic[0]
+        user_id = splitted_topic[0] if not data_user_id else data_user_id
         dId = splitted_topic[1]
         variable = splitted_topic[2]
-        print(f"   -> Parseo de Tópico OK -> userId: {user_id} | dId: {dId} | variable: {variable}")
-
+        
         device_found = await devices_collection.find_one({"dId": dId})
         
         if device_found:
-            print(f"   -> Dispositivo dId={dId} encontrado en MongoDB.")
             real_user_id = device_found.get("userId", user_id)
             payload_val = request_data.get("payload", {})
-            val = payload_val.get("value") if isinstance(payload_val, dict) else payload_val
-            print(f"   -> Valor extraído a guardar: {val}")
+            current_value = float(payload_val.get("value") if isinstance(payload_val, dict) else payload_val)
 
+            # 1. Aplicar filtro de variación del 0.05%
+            last_record = await data_collection.find_one(
+                {"dId": dId, "variable": variable},
+                sort=[("time", -1)]
+            )
+
+            if last_record:
+                last_value = float(last_record.get("value", 0))
+                percent_change = 0.0
+                if last_value != 0:
+                    percent_change = abs((current_value - last_value) / last_value) * 100
+                else:
+                    percent_change = 100.0 if current_value != 0 else 0.0
+
+                if percent_change < 0.05:
+                    print(f"🛡️ [FILTRO WEBHOOK] Dato descartado. Variación de {percent_change:.4f}% menor al 0.05% (dId: {dId}, var: {variable})")
+                    return {"status": "filtered", "message": "Variation below 0.05%"}
+
+            # 2. Guardar en MongoDB si pasa el umbral o es el primer registro
+            timestamp = int(time.time() * 1000)
             await data_collection.insert_one({
                 "userId": real_user_id,
                 "dId": dId,
                 "variable": variable,
-                "value": val,
-                "time": int(time.time() * 1000)
+                "value": current_value,
+                "time": timestamp,
+                "path": f"/{real_user_id}/{dId}/{timestamp}/"
             })
-            print(f"✅ [DB SUCCESS] ¡DATO GUARDADO EN MONGODB! -> dId: {dId} | Var: {variable} | Valor: {val}\n")
+            print(f"✅ [DB SUCCESS] ¡DATO GUARDADO EN MONGODB! -> dId: {dId} | Var: {variable} | Valor: {current_value}\n")
         else:
             print(f"⚠️ [AVISO DB] El dispositivo dId={dId} no existe en MongoDB, se descarta el registro.")
     else:
