@@ -28,21 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
-
-# Plan A: Lee la variable de entorno de Render (MONGO_URI)
-# Plan B: Si estás en tu PC y no la encuentra, usa directamente tu URL de Atlas
 MONGO_URL = os.getenv("MONGO_URI", "mongodb+srv://pigomezschneider_db_user:4WvulXjWAN5QBEBL@cluster0.rcvykvz.mongodb.net/?appName=Cluster0")
 
 client = AsyncIOMotorClient(MONGO_URL)
-
-# Base de datos que creaste en Atlas
 database = client.iot_db
-
-# MONGO_URL = "mongodb://localhost:27017"
-# client = AsyncIOMotorClient(MONGO_URL)
-# database = client.iot_database
 
 users_collection = database.get_collection("users")
 devices_collection = database.get_collection("devices")
@@ -76,7 +65,6 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-# para render
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
     base_url = f"https://{host}/api/v5"
@@ -96,20 +84,26 @@ async def create_emqx_v5_webhook_rule():
             token = login_res.json().get("token") or login_res.json().get("access_token")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-            # 2. Conector HTTP (Crear o Actualizar con PUT si ya existe)
+            # 2. Limpieza completa previa en orden inverso (Regla -> Acción -> Conector)
+            try:
+                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
+                await client.delete(f"{base_url}/actions/saver_hook_action", headers=headers)
+                await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
+                print("[EMQX-CLEAN] Recursos anteriores de EMQX eliminados correctamente para una recreación limpia.")
+            except Exception as e:
+                print(f"[EMQX-CLEAN-INFO] Nota durante la limpieza: {e}")
+
+            # 3. Crear Conector HTTP
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            conn_payload = {
+            conn_res = await client.post(f"{base_url}/connectors", json={
                 "name": "fastapi_connector", 
                 "type": "http", 
                 "url": public_api_url
-            }
-            conn_res = await client.put(f"{base_url}/connectors/http/fastapi_connector", json=conn_payload, headers=headers)
-            if conn_res.status_code not in [200, 201]:
-                conn_res = await client.post(f"{base_url}/connectors", json=conn_payload, headers=headers)
+            }, headers=headers)
             print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code}")
 
-            # 3. Acción HTTP (Crear o Actualizar con PUT si ya existe)
-            action_payload = {
+            # 4. Crear Acción HTTP
+            action_res = await client.post(f"{base_url}/actions", json={
                 "name": "saver_hook_action", 
                 "type": "http", 
                 "connector": "fastapi_connector",
@@ -119,18 +113,10 @@ async def create_emqx_v5_webhook_rule():
                     "headers": {"token": EMQX_API_TOKEN}, 
                     "body": "${.}"
                 }
-            }
-            action_res = await client.put(f"{base_url}/actions/http/saver_hook_action", json=action_payload, headers=headers)
-            if action_res.status_code not in [200, 201]:
-                action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
+            }, headers=headers)
             print(f"[EMQX-ACTION] Status: {action_res.status_code}")
 
-            # 4. Regla SQL (Borrar y recrear para asegurar que esté activa)
-            try:
-                await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
-            except Exception:
-                pass
-
+            # 5. Crear la Regla SQL
             rule_res = await client.post(f"{base_url}/rules", json={
                 "id": "saver_webhook_rule", 
                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
@@ -138,87 +124,13 @@ async def create_emqx_v5_webhook_rule():
             }, headers=headers)
             print(f"[EMQX-RULE] Status: {rule_res.status_code}")
             
-            if rule_res.status_code in [200, 201]:
-                print("[EMQX-SUCCESS] ¡FastAPI configuró y creó la regla y el webhook en EMQX con éxito absoluto!")
+            if rule_res.status_code in [200, 201] and conn_res.status_code in [200, 201] and action_res.status_code in [200, 201]:
+                print("[EMQX-SUCCESS] ¡FastAPI configuró y creó el conector, acción y regla en EMQX con éxito absoluto!")
             else:
-                print(f"[EMQX-WARN] Estado de la regla: {rule_res.text}")
+                print(f"[EMQX-WARN] Detalle - Conector: {conn_res.status_code}, Acción: {action_res.status_code}, Regla: {rule_res.status_code}")
                 
     except Exception as error:
         print("[EMQX-EXCEPTION] Error al configurar EMQX:", error)
-
-
-# # --- RUTINA AUTOMÁTICA NATIVA EMQX V5 ---
-# async def create_emqx_v5_webhook_rule():
-#     host = os.getenv("EMQX_API_HOST", "localhost")
-#     base_url = f"http://{host}:18083/api/v5"
-#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-#     print("[EMQX-INIT] Conectando con la API REST de EMQX v5...")
-#     try:
-#         async with httpx.AsyncClient() as client:
-#             login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
-#             if login_res.status_code != 200:
-#                 print(f"[EMQX-ERROR] Autenticación fallida en EMQX: {login_res.status_code}")
-#                 return
-            
-#             token = login_res.json().get("token") or login_res.json().get("access_token")
-#             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-#             # 1. Limpieza en orden inverso (Regla -> Acción -> Conector)
-#             await client.delete(f"{base_url}/rules/saver_webhook_rule", headers=headers)
-#             await client.delete(f"{base_url}/actions/saver_hook_action", headers=headers)
-#             await client.delete(f"{base_url}/connectors/fastapi_connector", headers=headers)
-#             print("[EMQX-CLEAN] Limpieza de recursos anteriores completada.")
-
-#             # para render
-#             connector_payload = {
-#                 "name": "fastapi_connector",
-#                 "type": "http",
-#                 "url": os.getenv("PUBLIC_API_URL", "https://tu-backend-fastapi.onrender.com")
-#             }
-#             # # 2. Creación del Connector HTTP (Base URL)
-#             # connector_payload = {
-#             #     "name": "fastapi_connector",
-#             #     "type": "http",
-#             #     "url": "http://localhost:8000"
-#             # }
-#             conn_res = await client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
-#             print(f"[EMQX-CONNECTOR] Creación de Conector: {conn_res.status_code} | Cuerpo: {conn_res.text}")
-
-#             # 3. Creación de la Action (Método en minúscula 'post')
-#             action_payload = {
-#                 "name": "saver_hook_action",
-#                 "type": "http",
-#                 "connector": "fastapi_connector",
-#                 "parameters": {
-#                     "method": "post",
-#                     "path": "/api/saver-webhook",
-#                     "headers": {
-#                         "token": EMQX_API_TOKEN
-#                     },
-#                     "body": "${.}"
-#                 }
-#             }
-#             action_res = await client.post(f"{base_url}/actions", json=action_payload, headers=headers)
-#             print(f"[EMQX-ACTION] Creación de Acción: {action_res.status_code} | Cuerpo: {action_res.text}")
-
-#             # 4. Creación de la Regla SQL
-#             rule_payload = {
-#                 "id": "saver_webhook_rule",
-#                 "sql": "SELECT * FROM \"+/+/+/sdata\"",
-#                 "actions": ["http:saver_hook_action"],
-#                 "description": "Regla automatizada de FastAPI para guardar datos de sensores"
-#             }
-#             rule_res = await client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-#             print(f"[EMQX-RULE] Creación de Regla: {rule_res.status_code} | Cuerpo: {rule_res.text}")
-            
-#             if rule_res.status_code in [200, 201] and action_res.status_code in [200, 201] and conn_res.status_code in [200, 201, 400]:
-#                 print("[EMQX-SUCCESS] ¡Conector, Acción y Regla configurados en EMQX v5 con éxito absoluto!")
-#             else:
-#                 print("[EMQX-WARN] Hubo una discrepancia en la creación automática de EMQX.")
-#     except Exception as error:
-#         print("[EMQX-EXCEPTION] Error crítico conectando con EMQX:", error)
 
 async def check_mqtt_superuser(db):
     try:
@@ -237,31 +149,17 @@ async def check_mqtt_superuser(db):
     except Exception as error:
         print("[DB-ERROR] Error creando superusuario MQTT:", error)
 
-# para render
-
 async def init_emqx_background_tasks(db):
     await asyncio.sleep(2)
     print("--------------------------------------------------")
     print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
     await check_mqtt_superuser(db)
-    
-    # Automatización activa para configurar EMQX al iniciar
     await create_emqx_v5_webhook_rule()
-    
     print("--------------------------------------------------")
-
-# async def init_emqx_background_tasks(db):
-#     await asyncio.sleep(2)
-#     print("--------------------------------------------------")
-#     print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
-#     await check_mqtt_superuser(db)
-#     await create_emqx_v5_webhook_rule()
-#     print("--------------------------------------------------")
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(init_emqx_background_tasks(database))
-
 
 async def get_device_mqtt_credentials(dId: str, userId: str):
     try:
@@ -284,7 +182,6 @@ async def get_device_mqtt_credentials(dId: str, userId: str):
     except Exception:
         return False
 
-
 # --- MODELOS ---
 class UserLogin(BaseModel):
     email: EmailStr
@@ -303,7 +200,6 @@ class DeviceCredentialsBody(BaseModel):
 
 class NotificationUpdateBody(BaseModel):
     notifId: str
-
 
 # --- ENDPOINTS ---
 @app.get("/")
@@ -410,8 +306,6 @@ async def delete_template(templateId: str = Query(...), token: str = Header(None
     await templates_collection.delete_one({"userId": user_email, "_id": ObjectId(templateId)})
     return {"status": "success"}
 
-
-# --- HISTORIAL Y DATOS ---
 @app.get("/get-small-charts-data")
 @app.get("/api/get-small-charts-data")
 async def get_small_charts_data(
@@ -440,7 +334,6 @@ async def get_small_charts_data(
         print("[DB-ERROR] Error consultando gráficos:", error)
         return []
 
-
 @app.post("/getdevicecredentials")
 @app.post("/api/getdevicecredentials")
 async def get_device_credentials(body: DeviceCredentialsBody):
@@ -468,8 +361,6 @@ async def get_device_credentials(body: DeviceCredentialsBody):
         "variables": variables
     }
 
-
-# --- WEBHOOK CON LOGS DE TRAZA COMPLETOS ---
 @app.post("/saver-webhook")
 @app.post("/api/saver-webhook")
 async def saver_webhook(request_data: dict, token: Optional[str] = Header(None)):
