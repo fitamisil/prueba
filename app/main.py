@@ -64,7 +64,7 @@ def get_user_email_from_token(token: str = Header(None)):
         return email
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
-        
+
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST", "emqx-latest-g2xb.onrender.com")
     base_url = f"http://{host}/api/v5"  # <-- Usando http hacia Tailscale
@@ -151,12 +151,15 @@ async def check_mqtt_superuser(db):
         print("[DB-ERROR] Error creando superusuario MQTT:", error)
 
 async def init_emqx_background_tasks(db):
-    await asyncio.sleep(2)
-    print("--------------------------------------------------")
-    print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
-    await check_mqtt_superuser(db)
-    await create_emqx_v5_webhook_rule()
-    print("--------------------------------------------------")
+    try:
+        await asyncio.sleep(3)
+        print("--------------------------------------------------")
+        print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
+        await check_mqtt_superuser(db)
+        await create_emqx_v5_webhook_rule()
+        print("--------------------------------------------------")
+    except Exception as e:
+        print(f"❌ [CRITICAL BACKGROUND ERROR] Excepción atrapada en segundo plano: {e}")
 
 @app.on_event("startup")
 async def startup_event():
