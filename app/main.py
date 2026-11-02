@@ -366,6 +366,16 @@ async def get_device_credentials(body: DeviceCredentialsBody):
         "topic": f"{userId}/{body.dId}/",
         "variables": variables
     }
+# agregado
+@app.post("/getmqttcredentialsforreconnection")
+@app.post("/api/getmqttcredentialsforreconnection")
+async def get_mqtt_credentials_for_reconnection(token: str = Header(None)):
+    return {
+        "status": "success", 
+        "username": os.getenv("EMQX_NODE_SUPERUSER_USER", "admin"),
+        "password": os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "public")
+    }
+
 
 # SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN Y PARSEO ROBUSTO
 @app.post("/saver-webhook")
