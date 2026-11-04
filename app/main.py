@@ -14,22 +14,7 @@ import asyncio
 import httpx
 import json
 
-# Importar el módulo de alarmas separado
 app = FastAPI(title="IoT GL API", version="1.0.0")
-
-MONGO_URL = os.getenv("MONGO_URI", "...")
-client = AsyncIOMotorClient(MONGO_URL)
-database = client.iot_db
-
-# Definición de colecciones necesarias para alarms.py
-alarm_rules_collection = database.get_collection("alarmrules")
-
-# Cambiar esto:
-from app.api.routes import alarms
-
-# Por esto:
-from api.routes import alarms
-
 
 SECRET_KEY = "clave-secreta-super-segura-iot-gl"
 ALGORITHM = "HS256"
@@ -58,6 +43,10 @@ notifications_collection = database.get_collection("notifications")
 alarm_rules_collection = database.get_collection("alarmrules")
 saver_rules_collection = database.get_collection("saverrules")
 
+# Importar el módulo de rutas de alarmas separado
+from app.api.routes import alarms
+app.include_router(alarms.router)
+
 string_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 def makeid(length: int = 10) -> str:
@@ -83,199 +72,57 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-# agregado
-
-async def get_emqx_v5_client_and_headers():
-    host = os.getenv("EMQX_API_HOST", "https://egg-des-prospect-damaged.trycloudflare.com")
-    
-    if host.startswith("http://") or host.startswith("https://"):
-        base_url = f"{host}/api/v5"
-    else:
-        base_url = f"http://{host}/api/v5"
-        
-    username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-    password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-    client = httpx.AsyncClient(verify=False, timeout=15.0)
-    try:
-        login_res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
-        if login_res.status_code != 200:
-            await client.aclose()
-            return None, None, None
-        
-        token = login_res.json().get("token") or login_res.json().get("access_token")
-        if not token:
-            await client.aclose()
-            return None, None, None
-            
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        return client, base_url, headers
-    except Exception as e:
-        print(f"[EMQX-AUTH-ERROR] {e}")
-        await client.aclose()
-        return None, None, None
-
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST")
     if not host:
-        print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
-    if host.startswith("http://") or host.startswith("https://"):
-        base_url = f"{host}/api/v5"
-    else:
-        base_url = f"http://{host}/api/v5"
-        
+    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
-    print(f"[EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
-    print(f"[EMQX-DEBUG] Credenciales usadas -> Usuario: {username} | Password length: {len(password)}")
-
-    # Intentamos con reintentos para darle tiempo al túnel de Cloudflare si está despertando
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            async with httpx.AsyncClient(verify=False, timeout=20.0) as httpx_client:
-                print(f"[EMQX-ATTEMPT {attempt}/{max_retries}] Enviando petición POST a {base_url}/login...")
-                try:
-                    login_res = await httpx_client.post(
-                        f"{base_url}/login", 
-                        json={"username": username, "password": password}
-                    )
-                except httpx.RequestError as net_err:
-                    print(f"❌ [EMQX-NETWORK-FAIL] Intento {attempt} falló por red. Tipo: {type(net_err).__name__}, Detalle: {net_err}")
-                    if attempt < max_retries:
-                        print("⏳ Esperando 4 segundos para reintentar conexión con el túnel...")
-                        await asyncio.sleep(4)
-                        continue
-                    return
-                except Exception as e:
-                    print(f"❌ [EMQX-UNKNOWN-FAIL] Intento {attempt} falló. Excepción: {type(e).__name__}, Detalle: {e}")
-                    return
-
-                print(f"[EMQX-DEBUG] Código de respuesta de login recibido: {login_res.status_code}")
-                print(f"[EMQX-DEBUG] Contenido crudo de respuesta: {login_res.text[:300]}")
-
-                if login_res.status_code != 200:
-                    print(f"❌ [EMQX-ERROR] Login rechazado por EMQX ({login_res.status_code}): {login_res.text}")
-                    return
-                
-                resp_json = login_res.json()
-                token = resp_json.get("token") or resp_json.get("access_token")
-                if not token:
-                    print(f"❌ [EMQX-ERROR] Login OK pero no se pudo extraer el token. JSON recibido: {resp_json}")
-                    return
-
-                print("✅ [EMQX-SUCCESS] ¡Autenticación con la API de EMQX exitosa! Configurando reglas y puentes...")
-                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-                public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-
-                connector_payload = {
-                    "name": "saver_webhook_bridge",
-                    "type": "http",
-                    "url": f"{public_api_url}/saver-webhook",
-                    "method": "post",
-                    "headers": {"token": EMQX_API_TOKEN},
-                    "body": "${.}",
-                    "connect_timeout": "15s",
-                    "pool_size": 8
-                }
-
-                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
-                if conn_res.status_code not in [200, 201]:
-                    conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
-                
-                print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
-                await asyncio.sleep(1)
-
-                rule_payload = {
-                    "id": "saver_webhook_rule", 
-                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
-                    "actions": ["http:saver_webhook_bridge"]
-                }
-
-                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-                if rule_res.status_code not in [200, 201]:
-                    rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
-
-                print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
-                break # Salimos del bucle si todo salió bien
-                
-        except Exception as error:
-            print("❌ [EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
-            break
-
-# async def create_emqx_v5_webhook_rule():
-#     host = os.getenv("EMQX_API_HOST")
-#     if not host:
-#         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
-#         return
-    
-#     if host.startswith("http://") or host.startswith("https://"):
-#         base_url = f"{host}/api/v5"
-#     else:
-#         base_url = f"http://{host}/api/v5"
-        
-#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-#     print(f"[EMQX-INIT] Conectando a la API de EMQX en: {base_url}...")
-#     try:
-#         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-#             try:
-#                 login_res = await httpx_client.post(
-#                     f"{base_url}/login", 
-#                     json={"username": username, "password": password}
-#                 )
-#             except Exception as e:
-#                 print(f"❌ [EMQX-NETWORK-FAIL] URL intentada: {base_url}/login | Error: type={type(e).__name__}, desc={e}")
-#                 return
-
-#             if login_res.status_code != 200:
-#                 print(f"[EMQX-ERROR] Login fallido en EMQX ({login_res.status_code}): {login_res.text}")
-#                 return
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+            login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+            if login_res.status_code != 200:
+                return
             
-#             token = login_res.json().get("token") or login_res.json().get("access_token")
-#             if not token:
-#                 print(f"[EMQX-ERROR] No se pudo extraer el token de acceso de EMQX.")
-#                 return
+            token = login_res.json().get("token") or login_res.json().get("access_token")
+            if not token:
+                return
 
-#             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-#             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-#             connector_payload = {
-#                 "name": "saver_webhook_bridge",
-#                 "type": "http",
-#                 "url": f"{public_api_url}/saver-webhook",
-#                 "method": "post",
-#                 "headers": {"token": EMQX_API_TOKEN},
-#                 "body": "${.}",
-#                 "connect_timeout": "15s",
-#                 "pool_size": 8
-#             }
+            connector_payload = {
+                "name": "saver_webhook_bridge",
+                "type": "http",
+                "url": f"{public_api_url}/saver-webhook",
+                "method": "post",
+                "headers": {"token": EMQX_API_TOKEN},
+                "body": "${.}",
+                "connect_timeout": "15s",
+                "pool_size": 8
+            }
 
-#             conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
-#             if conn_res.status_code not in [200, 201]:
-#                 conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
+            conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+            if conn_res.status_code not in [200, 201]:
+                await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
             
-#             print(f"[EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
-#             await asyncio.sleep(1)
+            await asyncio.sleep(1)
 
-#             rule_payload = {
-#                 "id": "saver_webhook_rule", 
-#                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
-#                 "actions": ["http:saver_webhook_bridge"]
-#             }
+            rule_payload = {
+                "id": "saver_webhook_rule", 
+                "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+                "actions": ["http:saver_webhook_bridge"]
+            }
 
-#             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-#             if rule_res.status_code not in [200, 201]:
-#                 rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
-
-#             print(f"[EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+            rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+            if rule_res.status_code not in [200, 201]:
+                await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
             
-#     except Exception as error:
-#         print("[EMQX-EXCEPTION] Error general crítico al configurar EMQX:", error)
+    except Exception as error:
+        print("[EMQX-EXCEPTION]", error)
 
 async def check_mqtt_superuser(db):
     try:
@@ -290,20 +137,16 @@ async def check_mqtt_superuser(db):
             "password": os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "virus123"),
             "type": "superuser", "time": current_time, "updatedTime": current_time
         })
-        print("[DB] Superusuario MQTT creado en MongoDB.")
     except Exception as error:
-        print("[DB-ERROR] Error creando superusuario MQTT:", error)
+        print("[DB-ERROR]", error)
 
 async def init_emqx_background_tasks(db):
     try:
         await asyncio.sleep(3)
-        print("--------------------------------------------------")
-        print("CHECKING MQTT SUPERUSER & EMQX RULES.........")
         await check_mqtt_superuser(db)
         await create_emqx_v5_webhook_rule()
-        print("--------------------------------------------------")
     except Exception as e:
-        print(f"❌ [CRITICAL BACKGROUND ERROR] Excepción atrapada en segundo plano: {e}")
+        print(f"❌ [CRITICAL BACKGROUND ERROR] {e}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -330,7 +173,6 @@ async def get_device_mqtt_credentials(dId: str, userId: str):
     except Exception:
         return False
 
-# --- MODELOS ---
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -349,7 +191,6 @@ class DeviceCredentialsBody(BaseModel):
 class NotificationUpdateBody(BaseModel):
     notifId: str
 
-# --- ENDPOINTS ---
 @app.get("/")
 async def read_root():
     return {"message": "API OK"}
@@ -465,7 +306,6 @@ async def get_small_charts_data(
     user_email = get_user_email_from_token(token)
     try:
         time_ago_ms = int(time.time() * 1000) - (max(chartTimeAgo, 1440) * 60 * 1000)
-
         cursor = data_collection.find({
             "dId": dId,
             "variable": variable,
@@ -476,10 +316,9 @@ async def get_small_charts_data(
         async for doc in cursor:
             doc["_id"] = str(doc["_id"])
             data.append(doc)
-
         return data
     except Exception as error:
-        print("[DB-ERROR] Error consultando gráficos:", error)
+        print("[DB-ERROR]", error)
         return []
 
 @app.post("/getdevicecredentials")
@@ -520,7 +359,6 @@ async def get_mqtt_credentials_for_reconnection(token: str = Header(None)):
         "password": os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "public")
     }
 
-# SAVER WEBHOOK CON FILTRO DE 0.05% DE VARIACIÓN Y PARSEO ROBUSTO
 @app.post("/saver-webhook")
 @app.post("/api/saver-webhook")
 async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
@@ -529,7 +367,7 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
 
     try:
         request_data = await request.json()
-    except Exception as e:
+    except Exception:
         return {"status": "error", "message": "Invalid JSON"}
 
     topic = request_data.get("topic", "")
@@ -556,11 +394,9 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
                     current_value = float(parsed_payload.get("value", 0))
                 else:
                     current_value = float(payload_val)
-            except Exception as e:
-                print(f"❌ [PAYLOAD ERROR] No se pudo convertir el valor: {payload_val} -> {e}")
+            except Exception:
                 return {"status": "error", "message": "Invalid payload value"}
 
-            # 1. Aplicar filtro de variación del 0.05%
             last_record = await data_collection.find_one(
                 {"dId": dId, "variable": variable},
                 sort=[("time", -1)]
@@ -568,16 +404,10 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
 
             if last_record:
                 last_value = float(last_record.get("value", 0))
-                percent_change = 0.0
-                if last_value != 0:
-                    percent_change = abs((current_value - last_value) / last_value) * 100
-                else:
-                    percent_change = 100.0 if current_value != 0 else 0.0
-
+                percent_change = abs((current_value - last_value) / last_value) * 100 if last_value != 0 else (100.0 if current_value != 0 else 0.0)
                 if percent_change < 0.05:
                     return {"status": "filtered", "message": "Variation below 0.05%"}
 
-            # 2. Guardar en MongoDB si pasa el umbral o es el primer registro
             timestamp = int(time.time() * 1000)
             await data_collection.insert_one({
                 "userId": real_user_id,
@@ -587,26 +417,15 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
                 "time": timestamp,
                 "path": f"/{real_user_id}/{dId}/{timestamp}/"
             })
-            print(f"✅ [DB SUCCESS] ¡DATO GUARDADO! -> dId: {dId} | Var: {variable} | Valor: {current_value}")
             
     return {"status": "success"}
 
-# --- ALARM WEBHOOK ---
 @app.post("/alarm-webhook")
 @app.post("/api/alarm-webhook")
 async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     if token and token != EMQX_API_TOKEN:
         raise HTTPException(status_code=403, detail="Unauthorized webhook")
-
-    try:
-        incoming_alarm = await request.json()
-    except Exception as e:
-        return {"status": "error", "message": "Invalid JSON"}
-
-    print(f"🚨 [ALARM RECEIVED] ¡Alarma disparada por EMQX!: {incoming_alarm}")
     return {"status": "success"}
-
-# --- NOTIFICACIONES Y CREDENCIALES ---
 
 @app.get("/notifications")
 @app.get("/api/notifications")
@@ -622,7 +441,6 @@ async def update_notification(body: NotificationUpdateBody, token: str = Header(
 @app.post("/api/getmqttcredentials")
 async def get_mqtt_credentials(token: str = Header(None)):
     return {"status": "success", "username": "admin", "password": "public"}
-
 # from datetime import datetime, timedelta, timezone
 # from fastapi import FastAPI, HTTPException, Header, status, Query
 # from fastapi.middleware.cors import CORSMiddleware
