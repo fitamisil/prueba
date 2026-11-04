@@ -27,6 +27,7 @@ alarm_rules_collection = database.get_collection("alarmrules")
 from app.api.routes import alarms
 app.include_router(alarms.router)
 
+
 SECRET_KEY = "clave-secreta-super-segura-iot-gl"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
