@@ -24,8 +24,11 @@ database = client.iot_db
 # Definición de colecciones necesarias para alarms.py
 alarm_rules_collection = database.get_collection("alarmrules")
 
+# Cambiar esto:
 from app.api.routes import alarms
-app.include_router(alarms.router)
+
+# Por esto:
+from api.routes import alarms
 
 
 SECRET_KEY = "clave-secreta-super-segura-iot-gl"
