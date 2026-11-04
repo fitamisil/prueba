@@ -1,0 +1,72 @@
+[
+  {
+    "name": "alarms",
+    "path": "/alarms",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/alarms.vue",
+    "chunkName": "pages/alarms",
+    "_name": "_10e9c804"
+  },
+  {
+    "name": "dashboard",
+    "path": "/dashboard",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/dashboard.vue",
+    "chunkName": "pages/dashboard",
+    "_name": "_660c72f0"
+  },
+  {
+    "name": "devices",
+    "path": "/devices",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/devices.vue",
+    "chunkName": "pages/devices",
+    "_name": "_68006351"
+  },
+  {
+    "name": "login",
+    "path": "/login",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/login.vue",
+    "chunkName": "pages/login",
+    "_name": "_14573246"
+  },
+  {
+    "name": "provisioner",
+    "path": "/provisioner",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/provisioner.vue",
+    "chunkName": "pages/provisioner",
+    "_name": "_19b7b236"
+  },
+  {
+    "name": "register",
+    "path": "/register",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/register.vue",
+    "chunkName": "pages/register",
+    "_name": "_36bf68df"
+  },
+  {
+    "name": "templates",
+    "path": "/templates",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/templates.vue",
+    "chunkName": "pages/templates",
+    "_name": "_261276a6"
+  },
+  {
+    "name": "test",
+    "path": "/test",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/test.vue",
+    "chunkName": "pages/test",
+    "_name": "_9365bd64"
+  },
+  {
+    "name": "GeneralViews-NotFoundPage",
+    "path": "/GeneralViews/NotFoundPage",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/GeneralViews/NotFoundPage.vue",
+    "chunkName": "pages/GeneralViews/NotFoundPage",
+    "_name": "_46b189ca"
+  },
+  {
+    "name": "index",
+    "path": "/",
+    "component": "/home/kali/Documentos/prueba/scr/mi-proyecto/pages/index.vue",
+    "chunkName": "pages/index",
+    "_name": "_2c2cc3c6"
+  }
+]

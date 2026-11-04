@@ -1,0 +1,131 @@
+{
+  "Badge": {
+    "description": "Auto imported from components/Badge.vue"
+  },
+  "BaseAlert": {
+    "description": "Auto imported from components/BaseAlert.vue"
+  },
+  "BaseButton": {
+    "description": "Auto imported from components/BaseButton.vue"
+  },
+  "BaseDropdown": {
+    "description": "Auto imported from components/BaseDropdown.vue"
+  },
+  "BasePagination": {
+    "description": "Auto imported from components/BasePagination.vue"
+  },
+  "BaseProgress": {
+    "description": "Auto imported from components/BaseProgress.vue"
+  },
+  "BaseSwitch": {
+    "description": "Auto imported from components/BaseSwitch.vue"
+  },
+  "BaseTable": {
+    "description": "Auto imported from components/BaseTable.vue"
+  },
+  "CloseButton": {
+    "description": "Auto imported from components/CloseButton.vue"
+  },
+  "Json": {
+    "description": "Auto imported from components/Json.vue"
+  },
+  "LoadingPanel": {
+    "description": "Auto imported from components/LoadingPanel.vue"
+  },
+  "Modal": {
+    "description": "Auto imported from components/Modal.vue"
+  },
+  "Breadcrumb": {
+    "description": "Auto imported from components/Breadcrumb/Breadcrumb.vue"
+  },
+  "BreadcrumbItem": {
+    "description": "Auto imported from components/Breadcrumb/BreadcrumbItem.vue"
+  },
+  "BreadcrumbRouteBreadcrumb": {
+    "description": "Auto imported from components/Breadcrumb/RouteBreadcrumb.vue"
+  },
+  "CardsCard": {
+    "description": "Auto imported from components/Cards/Card.vue"
+  },
+  "DashboardTaskList": {
+    "description": "Auto imported from components/Dashboard/TaskList.vue"
+  },
+  "DashboardUserTable": {
+    "description": "Auto imported from components/Dashboard/UserTable.vue"
+  },
+  "InputsBaseCheckbox": {
+    "description": "Auto imported from components/Inputs/BaseCheckbox.vue"
+  },
+  "InputsBaseInput": {
+    "description": "Auto imported from components/Inputs/BaseInput.vue"
+  },
+  "InputsBaseRadio": {
+    "description": "Auto imported from components/Inputs/BaseRadio.vue"
+  },
+  "InputsIconCheckbox": {
+    "description": "Auto imported from components/Inputs/IconCheckbox.vue"
+  },
+  "LayoutContent": {
+    "description": "Auto imported from components/Layout/Content.vue"
+  },
+  "LayoutContentFooter": {
+    "description": "Auto imported from components/Layout/ContentFooter.vue"
+  },
+  "LayoutDashboardLayout": {
+    "description": "Auto imported from components/Layout/DashboardLayout.vue"
+  },
+  "LayoutDashboardNavbar": {
+    "description": "Auto imported from components/Layout/DashboardNavbar.vue"
+  },
+  "LayoutLoadingMainPanel": {
+    "description": "Auto imported from components/Layout/LoadingMainPanel.vue"
+  },
+  "LayoutSidebarSharePlugin": {
+    "description": "Auto imported from components/Layout/SidebarSharePlugin.vue"
+  },
+  "NavbarBaseNav": {
+    "description": "Auto imported from components/Navbar/BaseNav.vue"
+  },
+  "NavbarToggleButton": {
+    "description": "Auto imported from components/Navbar/NavbarToggleButton.vue"
+  },
+  "Notification": {
+    "description": "Auto imported from components/NotificationPlugin/Notification.vue"
+  },
+  "NotificationPluginNotifications": {
+    "description": "Auto imported from components/NotificationPlugin/Notifications.vue"
+  },
+  "NotificationPlugin": {
+    "description": "Auto imported from components/NotificationPlugin/index.js"
+  },
+  "SidebarPluginSideBar": {
+    "description": "Auto imported from components/SidebarPlugin/SideBar.vue"
+  },
+  "SidebarItem": {
+    "description": "Auto imported from components/SidebarPlugin/SidebarItem.vue"
+  },
+  "UserProfileEditProfileForm": {
+    "description": "Auto imported from components/UserProfile/EditProfileForm.vue"
+  },
+  "UserCard": {
+    "description": "Auto imported from components/UserProfile/UserCard.vue"
+  },
+  "WidgetsIotbutton": {
+    "description": "Auto imported from components/Widgets/Iotbutton.vue"
+  },
+  "WidgetsIotindicator": {
+    "description": "Auto imported from components/Widgets/Iotindicator.vue"
+  },
+  "WidgetsIotswitch": {
+    "description": "Auto imported from components/Widgets/Iotswitch.vue"
+  },
+  "WidgetsRtnumberchart": {
+    "description": "Auto imported from components/Widgets/Rtnumberchart.vue"
+  },
+  "LayoutStarterSampleFooter": {
+    "description": "Auto imported from components/Layout/starter/SampleFooter.vue"
+  },
+  "LayoutStarterSampleNavbar": {
+    "description": "Auto imported from components/Layout/starter/SampleNavbar.vue"
+  }
+}

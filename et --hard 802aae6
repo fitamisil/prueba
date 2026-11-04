@@ -1,0 +1,42 @@
+[33mc18c1a4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m Igualar la creacion de regla de alarma al patron de saver_webhook
+[33m1d2bce7[m Igualar la creacion de regla de alarma al patron de saver_webhook
+[33m1a2c1fc[m Agregar creacion automatica de bridge HTTP para alarmas en EMQX
+[33me3ba8a8[m Corregir importacion desde main en lugar de __main__
+[33ma5b44cf[m Limpiar main.py y actualizar alarms.py
+[33m8447381[m Corregir ruta de importacion de alarms
+[33me224f6f[m Subir main.py corregido
+[33m3cbd038[m Mover inclusion de alarms.router al final para asegurar variables de __main__
+[33ma3058a9[m Integrar alarms.py con APIRouter en FastAPI
+[33m802aae6[m Corregir parseo robusto de payload y tokens
+[33m2e440de[m Corregir parseo robusto de payload y tokens
+[33meb49bf0[m Corregir parseo robusto de payload y tokens
+[33m4399f0b[m Corregir parseo robusto de payload y tokens
+[33m95d3b75[m Arreglar conexion EMQX y URL de Cloudflare
+[33m7d643e9[m Arreglar conexion EMQX y URL de Cloudflare
+[33m458f183[m Arreglar conexion EMQX y URL de Cloudflare
+[33m30e4846[m Arreglar conexion EMQX y URL de Cloudflare
+[33mf93c3a7[m Arreglar conexion EMQX y URL de Cloudflare
+[33mac3297a[m Arreglar conexion EMQX y URL de Cloudflare
+[33m68fb3d2[m Arreglar conexion EMQX y URL de Cloudflare
+[33m98e5904[m Actualizar main.py para EMQX
+[33mc9ed1b4[m Actualizar main.py para EMQX
+[33m7aef2a9[m Actualizar main.py para EMQX
+[33md0d5d3e[m Actualizar main.py para EMQX
+[33med982d1[m Actualizar main.py para EMQX
+[33m90ffe28[m Actualizar main.py para EMQX
+[33m6ba5ae4[m Actualizar main.py para EMQX
+[33mc67ffdf[m Actualizar main.py para EMQX
+[33m34ebb22[m Actualizar main.py para EMQX
+[33mf5aa85c[m Actualizar main.py para EMQX
+[33mdf6c279[m Actualizar main.py para EMQX
+[33m5d22918[m Actualizar main.py para EMQX
+[33m9c5fcb3[m Actualizar main.py para EMQX
+[33m66c162c[m Actualizar dependencias con httpx
+[33m71ab826[m Actualizar dependencias con httpx
+[33mb068549[m Actualizar main.py para EMQX
+[33m360bc19[m Arreglo definitivo requirements
+[33mc3eda78[m Agrego python-jose al requirements.txt
+[33maad8d4e[m Agrego bcrypt al requirements.txt
+[33m7376792[m Dejar requirements.txt limpio solo con FastAPI
+[33mdfb92a5[m Agrego requirements.txt dentro de app
+[33m1bfe0ee[m Backend configurado con MongoDB Atlas y EMQX
