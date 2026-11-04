@@ -44,7 +44,9 @@ alarm_rules_collection = database.get_collection("alarmrules")
 saver_rules_collection = database.get_collection("saverrules")
 
 # Importar el módulo de rutas de alarmas separado
-from app.api.routes import alarms
+
+from api.routes import alarms
+
 app.include_router(alarms.router)
 
 string_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
