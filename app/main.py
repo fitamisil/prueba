@@ -483,24 +483,20 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
     variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
 
-    # 1. Buscar el dispositivo para heredar su userId real si viene vacío en el webhook
     device_found = await devices_collection.find_one({"dId": dId})
     real_user_id = device_found.get("userId") if device_found else userId
-
-    # Si por alguna razón sigue sin encontrarse el usuario, evitamos fallar
     if not real_user_id:
         real_user_id = "unknown_user"
 
-    # 2. Buscar la regla de alarma asociada para traer los detalles de condición y umbral
     alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable})
-    
     variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
     condition = alarm_rule.get("condition", "") if alarm_rule else ""
     target_value = alarm_rule.get("value", "") if alarm_rule else ""
 
     alert_message = f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}"
-
     timestamp = int(time.time() * 1000)
+
+    # 💡 PROTECCIÓN CONTRA DUPLICATE KEY ERROR: Si _id choca, lo eliminamos para que Mongo cree uno nuevo limpio
     notification_doc = {
         "userId": real_user_id,
         "dId": dId,
@@ -513,6 +509,56 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
         "leida": False,
         "time": timestamp
     }
+
+    try:
+        await notifications_collection.insert_one(notification_doc)
+    except Exception as db_err:
+        if "_id" in notification_doc:
+            del notification_doc["_id"]
+        try:
+            await notifications_collection.insert_one(notification_doc)
+        except Exception as inner_err:
+            print(f"⚠️ [DB-WARN] No se pudo guardar la notificación en historial: {inner_err}")
+
+    print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
+
+    # 3. INTENTO DE PUBLICACIÓN VÍA API DE EMQX (Blindado contra errores 404/Conexión)
+    notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
+    mqtt_payload = {
+        "active": True,
+        "msg": alert_message,
+        "type": "danger",
+        "value": current_value,
+        "timestamp": timestamp
+    }
+
+    try:
+        emqx_api_host = os.getenv("EMQX_API_HOST")
+        if emqx_api_host:
+            base_url = f"{emqx_api_host}/api/v5" if emqx_api_host.startswith("http") else f"http://{emqx_api_host}/api/v5"
+            username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+            password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+
+            async with httpx.AsyncClient(verify=False, timeout=5.0) as client_http:
+                login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
+                if login_res.status_code == 200:
+                    token_emqx = login_res.json().get("token") or login_res.json().get("access_token")
+                    headers_emqx = {"Authorization": f"Bearer {token_emqx}", "Content-Type": "application/json"}
+                    
+                    publish_payload = {
+                        "topic": notif_topic,
+                        "payload": json.dumps(mqtt_payload),
+                        "qos": 0,
+                        "retain": False
+                    }
+                    pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers_emqx)
+                    print(f"📡 [EMQX-API-PUBLISH] Status: {pub_res.status_code} Tópico: {notif_topic}")
+                else:
+                    print(f"⚠️ [EMQX-LOGIN-SKIP] No se pudo conectar a la API REST de EMQX (Status {login_res.status_code}), omitiendo notificación en tiempo real por HTTP.")
+    except Exception as e:
+        print(f"⚠️ [EMQX-PUBLISH-SKIP] Error de red al intentar conectar con EMQX API: {e}")
+
+    return {"status": "success", "message": "Alarm processed successfully"}
 
     # Guardar en MongoDB sin colisionar de clave duplicada
     await notifications_collection.insert_one(notification_doc)
