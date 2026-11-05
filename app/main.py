@@ -240,6 +240,41 @@ async def get_devices(token: str = Header(None)):
     async for dev in devices_collection.find({"userId": user_email}):
         dev["_id"] = str(dev["_id"])
         devices.append(dev)
+        
+    saver_rules = []
+    async for sr in saver_rules_collection.find({"userId": user_email}):
+        sr["_id"] = str(sr["_id"])
+        saver_rules.append(sr)
+        
+    templates = []
+    async for t in templates_collection.find({"userId": user_email}):
+        t["_id"] = str(t["_id"])
+        templates.append(t)
+        
+    alarm_rules = []
+    async for ar in alarm_rules_collection.find({"userId": user_email}):
+        ar["_id"] = str(ar["_id"])
+        alarm_rules.append(ar)
+
+    for device in devices:
+        sr = next((s for s in saver_rules if s.get("dId") == device.get("dId")), None)
+        device["saverRule"] = {"_id": sr["_id"], "status": sr.get("status", True)} if sr else {"status": True}
+        
+        t = next((tp for tp in templates if str(tp.get("_id")) == str(device.get("templateId"))), None)
+        if t:
+            device["template"] = t
+            
+        device["alarmRules"] = [ar for ar in alarm_rules if ar.get("dId"] == device.get("dId")]
+
+    return {"status": "success", "data": devices}
+    
+@app.get("/api/device")
+async def get_devices(token: str = Header(None)):
+    user_email = get_user_email_from_token(token)
+    devices = []
+    async for dev in devices_collection.find({"userId": user_email}):
+        dev["_id"] = str(dev["_id"])
+        devices.append(dev)
     saver_rules = await saver_rules_collection.find({"userId": user_email}).to_list(length=None)
     templates = await templates_collection.find({"userId": user_email}).to_list(length=None)
     alarm_rules = await alarm_rules_collection.find({"userId": user_email}).to_list(length=None)
