@@ -444,15 +444,75 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
 async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     if token and token != EMQX_API_TOKEN:
         raise HTTPException(status_code=403, detail="Unauthorized webhook")
-    return {"status": "success"}
+
+    try:
+        request_data = await request.json()
+    except Exception:
+        return {"status": "error", "message": "Invalid JSON"}
+
+    # Extraer los datos que envía EMQX desde la regla de alarma
+    topic = request_data.get("topic", "")
+    userId = request_data.get("userId")
+    payload = request_data.get("payload", {})
+    
+    # Intentar obtener el valor numérico del payload
+    current_value = 0.0
+    try:
+        if isinstance(payload, dict):
+            current_value = float(payload.get("value", 0))
+        elif isinstance(payload, str):
+            parsed_payload = json.loads(payload)
+            current_value = float(parsed_payload.get("value", 0))
+        else:
+            current_value = float(payload)
+    except Exception:
+        current_value = 0.0
+
+    splitted_topic = topic.split("/")
+    dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
+    variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
+
+    # Buscar la regla de alarma configurada en MongoDB para obtener detalles como el nombre completo y umbral
+    alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable, "userId": userId})
+    
+    variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
+    condition = alarm_rule.get("condition", "") if alarm_rule else ""
+    target_value = alarm_rule.get("value", "") if alarm_rule else ""
+
+    # Crear el objeto de notificación / alerta para que Nuxt lo pueda listar
+    timestamp = int(time.time() * 1000)
+    notification_doc = {
+        "userId": userId,
+        "dId": dId,
+        "variable": variable,
+        "variableFullName": variable_full_name,
+        "value": current_value,
+        "condition": condition,
+        "targetValue": target_value,
+        "message": f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}",
+        "leida": False,
+        "time": timestamp
+    }
+
+    await notifications_collection.insert_one(notification_doc)
+    print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el dispositivo {dId} en la variable {variable}")
+
+    return {"status": "success", "message": "Alarm processed successfully"}
+
 
 @app.get("/notifications")
 @app.get("/api/notifications")
 async def get_notifications(token: str = Header(None)):
-    return {"status": "success", "data": []}
+    user_email = get_user_email_from_token(token)
+    notifications = []
+    async for notif in notifications_collection.find({"userId": user_email}).sort("time", -1).limit(50):
+        notif["_id"] = str(notif["_id"])
+        notifications.append(notif)
+    return {"status": "success", "data": notifications}
 
-@app.put("/notifications")
-@app.put("/api/notifications")
+
+
+
 async def update_notification(body: NotificationUpdateBody, token: str = Header(None)):
     return {"status": "success"}
 
