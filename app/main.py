@@ -1,4 +1,3 @@
-
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Header, status, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -134,7 +133,7 @@ async def create_emqx_v5_webhook_rule():
                     rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
 
                 print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
-                break # Éxito, salimos del bucle
+                break
                 
         except Exception as error:
             print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} - {error}")
@@ -164,11 +163,9 @@ async def init_emqx_background_tasks(db):
     try:
         await asyncio.sleep(3)
         await check_mqtt_superuser(db)
-        # ❌ COMENTAMOS ESTA LÍNEA PARA QUE NO INTENTE CONECTAR AL ARRANCAR
-        # await create_emqx_v5_webhook_rule()
+        await create_emqx_v5_webhook_rule()
     except Exception as e:
         print(f"❌ [CRITICAL BACKGROUND ERROR] {e}")
-
 
 @app.on_event("startup")
 async def startup_event():
@@ -271,14 +268,7 @@ async def add_device(request_body: dict, token: str = Header(None)):
     new_device["selected"] = True
     await saver_rules_collection.insert_one({"userId": user_email, "dId": dId, "status": True})
     await devices_collection.insert_one(new_device)
-    
-    # 🔌 ESTA LÍNEA ES LA QUE CREA EL PUENTE Y LA REGLA AL CREAR EL DISPOSITIVO
-    asyncio.create_task(create_emqx_v5_webhook_rule())
-    
     return {"status": "success"}
-
-
-
 
 @app.delete("/device")
 @app.delete("/api/device")
@@ -470,4 +460,3 @@ async def update_notification(body: NotificationUpdateBody, token: str = Header(
 @app.post("/api/getmqttcredentials")
 async def get_mqtt_credentials(token: str = Header(None)):
     return {"status": "success", "username": "admin", "password": "public"}
-
