@@ -271,7 +271,14 @@ async def add_device(request_body: dict, token: str = Header(None)):
     new_device["selected"] = True
     await saver_rules_collection.insert_one({"userId": user_email, "dId": dId, "status": True})
     await devices_collection.insert_one(new_device)
+    
+    # 🔌 ESTA LÍNEA ES LA QUE CREA EL PUENTE Y LA REGLA AL CREAR EL DISPOSITIVO
+    asyncio.create_task(create_emqx_v5_webhook_rule())
+    
     return {"status": "success"}
+
+
+
 
 @app.delete("/device")
 @app.delete("/api/device")
