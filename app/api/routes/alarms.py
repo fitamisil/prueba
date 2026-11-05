@@ -98,14 +98,17 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 f'WHERE payload.value {new_alarm.get("condition")} {new_alarm.get("value")} '
                 'AND is_not_null(payload.value)'
             )
-
+            
             rule_payload = {
                 "id": rule_id,
+                "name": rule_id,
                 "sql": sql,
                 "actions": ["http:alarm_webhook_bridge"],
                 "description": f"Alarm rule for {new_alarm.get('variableFullName')}",
-                "enabled": new_alarm.get("status", True)
+                "enable": new_alarm.get("status", True)
             }
+
+           
 
             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
             
