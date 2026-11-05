@@ -86,55 +86,126 @@ async def create_emqx_v5_webhook_rule():
 
     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
 
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
-            print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
+                login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+                print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
+                
+                if login_res.status_code != 200:
+                    print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
+                    return
+                
+                token = login_res.json().get("token") or login_res.json().get("access_token")
+                if not token:
+                    print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
+                    return
+
+                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+
+                connector_payload = {
+                    "name": "saver_webhook_bridge",
+                    "type": "http",
+                    "url": f"{public_api_url}/saver-webhook",
+                    "method": "post",
+                    "headers": {"token": EMQX_API_TOKEN},
+                    "body": "${.}",
+                    "connect_timeout": "15s",
+                    "pool_size": 8
+                }
+
+                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+                if conn_res.status_code not in [200, 201]:
+                    conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
+                
+                print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
+                await asyncio.sleep(1)
+
+                rule_payload = {
+                    "id": "saver_webhook_rule", 
+                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+                    "actions": ["http:saver_webhook_bridge"]
+                }
+
+                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+                if rule_res.status_code not in [200, 201]:
+                    rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
+
+                print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+                break # Éxito, salimos del bucle
+                
+        except Exception as error:
+            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} - {error}")
+            if attempt < max_retries:
+                print("⏳ Reintentando conexión con EMQX en 5 segundos...")
+                await asyncio.sleep(5)
+            else:
+                print(f"❌ [EMQX-EXCEPTION CRITICAL] Se agotaron los reintentos.")
+
+
+# async def create_emqx_v5_webhook_rule():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
+#         return
+    
+#     base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+
+#     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
+
+#     try:
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+#             login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+#             print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
             
-            if login_res.status_code != 200:
-                print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
-                return
+#             if login_res.status_code != 200:
+#                 print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
+#                 return
             
-            token = login_res.json().get("token") or login_res.json().get("access_token")
-            if not token:
-                print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
-                return
+#             token = login_res.json().get("token") or login_res.json().get("access_token")
+#             if not token:
+#                 print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
+#                 return
 
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+#             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+#             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-            connector_payload = {
-                "name": "saver_webhook_bridge",
-                "type": "http",
-                "url": f"{public_api_url}/saver-webhook",
-                "method": "post",
-                "headers": {"token": EMQX_API_TOKEN},
-                "body": "${.}",
-                "connect_timeout": "15s",
-                "pool_size": 8
-            }
+#             connector_payload = {
+#                 "name": "saver_webhook_bridge",
+#                 "type": "http",
+#                 "url": f"{public_api_url}/saver-webhook",
+#                 "method": "post",
+#                 "headers": {"token": EMQX_API_TOKEN},
+#                 "body": "${.}",
+#                 "connect_timeout": "15s",
+#                 "pool_size": 8
+#             }
 
-            conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
-            if conn_res.status_code not in [200, 201]:
-                conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
+#             conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+#             if conn_res.status_code not in [200, 201]:
+#                 conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
             
-            print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
-            await asyncio.sleep(1)
+#             print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
+#             await asyncio.sleep(1)
 
-            rule_payload = {
-                "id": "saver_webhook_rule", 
-                "sql": "SELECT * FROM \"+/+/+/sdata\"", 
-                "actions": ["http:saver_webhook_bridge"]
-            }
+#             rule_payload = {
+#                 "id": "saver_webhook_rule", 
+#                 "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+#                 "actions": ["http:saver_webhook_bridge"]
+#             }
 
-            rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-            if rule_res.status_code not in [200, 201]:
-                rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
+#             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+#             if rule_res.status_code not in [200, 201]:
+#                 rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
 
-            print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+#             print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
-    except Exception as error:
-        print(f"❌ [EMQX-EXCEPTION CRITICAL] Detalle del fallo: {type(error).__name__} - {error}")
+#     except Exception as error:
+#         print(f"❌ [EMQX-EXCEPTION CRITICAL] Detalle del fallo: {type(error).__name__} - {error}")
 
 
     
