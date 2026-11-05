@@ -553,7 +553,15 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
                         "qos": 0,
                         "retain": False
                     }
-                    pub_res = await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers_emqx)
+
+                    # ANTES (Daba 404 porque la ruta no existe en esa forma)
+                    # pub_res = await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers_emqx)
+
+                    # AHORA (Ruta correcta de la API REST de EMQX v5 para publicar)
+                    pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers_emqx)
+
+
+                    # pub_res = await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers_emqx)
                     print(f"📡 [EMQX-API-PUBLISH] Status: {pub_res.status_code} Tópico: {notif_topic}")
                 else:
                     print(f"❌ [EMQX-API-LOGIN-ERROR] No se pudo autenticar en la API de EMQX: {login_res.text}")
