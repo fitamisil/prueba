@@ -133,11 +133,11 @@ async def create_emqx_v5_webhook_rule():
 
             print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
             
+ 
+
+
     except Exception as error:
-        print(f"❌ [EMQX-EXCEPTION CRITICAL] Detalle del fallo: {type(error).__name__} - {error}")
-
-
-
+        print(f"❌ [EMQX-EXCEPTION CRITICAL] Detalle del fallo: {type(error).__name__} - {error}"){error}")
 
 
 # async def create_emqx_v5_webhook_rule():
