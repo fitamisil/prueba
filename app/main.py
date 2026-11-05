@@ -136,7 +136,7 @@ async def create_emqx_v5_webhook_rule():
                 break
                 
         except Exception as error:
-            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} - {error}")
+            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
             if attempt < max_retries:
                 print("⏳ Reintentando conexión con EMQX en 5 segundos...")
                 await asyncio.sleep(5)
@@ -264,28 +264,6 @@ async def get_devices(token: str = Header(None)):
         if t:
             device["template"] = t
             
-        device["alarmRules"] = [ar for ar in alarm_rules if ar.get("dId"] == device.get("dId")]
-
-    return {"status": "success", "data": devices}
-    
-@app.get("/api/device")
-async def get_devices(token: str = Header(None)):
-    user_email = get_user_email_from_token(token)
-    devices = []
-    async for dev in devices_collection.find({"userId": user_email}):
-        dev["_id"] = str(dev["_id"])
-        devices.append(dev)
-    saver_rules = await saver_rules_collection.find({"userId": user_email}).to_list(length=None)
-    templates = await templates_collection.find({"userId": user_email}).to_list(length=None)
-    alarm_rules = await alarm_rules_collection.find({"userId": user_email}).to_list(length=None)
-
-    for device in devices:
-        sr = next((s for s in saver_rules if s.get("dId") == device.get("dId")), None)
-        device["saverRule"] = {"_id": str(sr["_id"]), "status": sr.get("status", True)} if sr else {"status": True}
-        t = next((tp for tp in templates if str(tp.get("_id")) == str(device.get("templateId"))), None)
-        if t:
-            t["_id"] = str(t["_id"])
-            device["template"] = t
         device["alarmRules"] = [ar for ar in alarm_rules if ar.get("dId") == device.get("dId")]
 
     return {"status": "success", "data": devices}
@@ -485,12 +463,10 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     except Exception:
         return {"status": "error", "message": "Invalid JSON"}
 
-    # Extraer los datos que envía EMQX desde la regla de alarma
     topic = request_data.get("topic", "")
     userId = request_data.get("userId")
     payload = request_data.get("payload", {})
     
-    # Intentar obtener el valor numérico del payload
     current_value = 0.0
     try:
         if isinstance(payload, dict):
@@ -507,14 +483,12 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
     variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
 
-    # Buscar la regla de alarma configurada en MongoDB para obtener detalles como el nombre completo y umbral
     alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable, "userId": userId})
     
     variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
     condition = alarm_rule.get("condition", "") if alarm_rule else ""
     target_value = alarm_rule.get("value", "") if alarm_rule else ""
 
-    # Crear el objeto de notificación / alerta para que Nuxt lo pueda listar
     timestamp = int(time.time() * 1000)
     notification_doc = {
         "userId": userId,
@@ -534,7 +508,6 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
 
     return {"status": "success", "message": "Alarm processed successfully"}
 
-
 @app.get("/notifications")
 @app.get("/api/notifications")
 async def get_notifications(token: str = Header(None)):
@@ -545,9 +518,8 @@ async def get_notifications(token: str = Header(None)):
         notifications.append(notif)
     return {"status": "success", "data": notifications}
 
-
-
-
+@app.put("/notifications")
+@app.put("/api/notifications")
 async def update_notification(body: NotificationUpdateBody, token: str = Header(None)):
     return {"status": "success"}
 
