@@ -164,9 +164,11 @@ async def init_emqx_background_tasks(db):
     try:
         await asyncio.sleep(3)
         await check_mqtt_superuser(db)
-        await create_emqx_v5_webhook_rule()
+        # ❌ COMENTAMOS ESTA LÍNEA PARA QUE NO INTENTE CONECTAR AL ARRANCAR
+        # await create_emqx_v5_webhook_rule()
     except Exception as e:
         print(f"❌ [CRITICAL BACKGROUND ERROR] {e}")
+
 
 @app.on_event("startup")
 async def startup_event():
