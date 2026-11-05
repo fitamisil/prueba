@@ -496,7 +496,6 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     alert_message = f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}"
     timestamp = int(time.time() * 1000)
 
-    # 💡 PROTECCIÓN CONTRA DUPLICATE KEY ERROR: Si _id choca, lo eliminamos para que Mongo cree uno nuevo limpio
     notification_doc = {
         "userId": real_user_id,
         "dId": dId,
@@ -512,17 +511,17 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
 
     try:
         await notifications_collection.insert_one(notification_doc)
-    except Exception as db_err:
+    except Exception:
         if "_id" in notification_doc:
             del notification_doc["_id"]
         try:
             await notifications_collection.insert_one(notification_doc)
-        except Exception as inner_err:
-            print(f"⚠️ [DB-WARN] No se pudo guardar la notificación en historial: {inner_err}")
+        except Exception:
+            pass
 
     print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
 
-    # 3. INTENTO DE PUBLICACIÓN VÍA API DE EMQX (Blindado contra errores 404/Conexión)
+    # 3. PUBLICAR EN TIEMPO REAL VÍA MQTT NATIVO (Como funcionaba antes)
     notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
     mqtt_payload = {
         "active": True,
@@ -533,79 +532,23 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     }
 
     try:
-        emqx_api_host = os.getenv("EMQX_API_HOST")
-        if emqx_api_host:
-            base_url = f"{emqx_api_host}/api/v5" if emqx_api_host.startswith("http") else f"http://{emqx_api_host}/api/v5"
-            username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-            password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-            async with httpx.AsyncClient(verify=False, timeout=5.0) as client_http:
-                login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
-                if login_res.status_code == 200:
-                    token_emqx = login_res.json().get("token") or login_res.json().get("access_token")
-                    headers_emqx = {"Authorization": f"Bearer {token_emqx}", "Content-Type": "application/json"}
-                    
-                    publish_payload = {
-                        "topic": notif_topic,
-                        "payload": json.dumps(mqtt_payload),
-                        "qos": 0,
-                        "retain": False
-                    }
-                    pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers_emqx)
-                    print(f"📡 [EMQX-API-PUBLISH] Status: {pub_res.status_code} Tópico: {notif_topic}")
-                else:
-                    print(f"⚠️ [EMQX-LOGIN-SKIP] No se pudo conectar a la API REST de EMQX (Status {login_res.status_code}), omitiendo notificación en tiempo real por HTTP.")
+        import paho.mqtt.publish as publish
+        emqx_mqtt_host = os.getenv("EMQX_MQTT_HOST", "localhost")
+        publish.single(
+            notif_topic,
+            payload=json.dumps(mqtt_payload),
+            hostname=emqx_mqtt_host,
+            port=1883,
+            auth={
+                'username': os.getenv("EMQX_NODE_SUPERUSER_USER", "admin"), 
+                'password': os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "virus123")
+            }
+        )
+        print(f"📡 [MQTT-NATIVE-PUBLISH] Alerta publicada con éxito en tópico: {notif_topic}")
     except Exception as e:
-        print(f"⚠️ [EMQX-PUBLISH-SKIP] Error de red al intentar conectar con EMQX API: {e}")
+        print(f"❌ [MQTT-PUBLISH-ERROR] No se pudo publicar la alerta por MQTT nativo: {e}")
 
     return {"status": "success", "message": "Alarm processed successfully"}
-
-    # Guardar en MongoDB sin colisionar de clave duplicada
-    await notifications_collection.insert_one(notification_doc)
-    print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
-
-    # 3. PUBLICAR EN TIEMPO REAL VÍA API REST DE EMQX (Tópico /notif original)
-    notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
-    
-    mqtt_payload = {
-        "active": True,
-        "msg": alert_message,
-        "type": "danger",
-        "value": current_value,
-        "timestamp": timestamp
-    }
-
-    try:
-        emqx_api_host = os.getenv("EMQX_API_HOST")
-        if emqx_api_host:
-            base_url = f"{emqx_api_host}/api/v5" if emqx_api_host.startswith("http") else f"http://{emqx_api_host}/api/v5"
-            username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-            password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as client_http:
-                login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
-                if login_res.status_code == 200:
-                    token_emqx = login_res.json().get("token") or login_res.json().get("access_token")
-                    headers_emqx = {"Authorization": f"Bearer {token_emqx}", "Content-Type": "application/json"}
-                    
-                    publish_payload = {
-                        "topic": notif_topic,
-                        "payload": json.dumps(mqtt_payload),
-                        "qos": 0,
-                        "retain": False
-                    }
-
-                    pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers_emqx)
-                    print(f"📡 [EMQX-API-PUBLISH] Status: {pub_res.status_code} Tópico: {notif_topic}")
-                else:
-                    print(f"❌ [EMQX-API-LOGIN-ERROR] No se pudo autenticar en la API de EMQX: {login_res.text}")
-        else:
-            print("⚠️ [EMQX-WARNING] La variable EMQX_API_HOST no está definida para enviar notificaciones en tiempo real.")
-    except Exception as e:
-        print(f"❌ [EMQX-API-PUBLISH-ERROR] No se pudo publicar la alerta por API HTTP: {e}")
-
-    return {"status": "success", "message": "Alarm processed successfully"}
-
 # @app.post("/alarm-webhook")
 # @app.post("/api/alarm-webhook")
 # async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
