@@ -452,6 +452,9 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
             
     return {"status": "success"}
 
+import json
+import paho.mqtt.publish as publish
+# ... (el resto de tus imports)
 
 @app.post("/alarm-webhook")
 @app.post("/api/alarm-webhook")
@@ -488,12 +491,18 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
     device_found = await devices_collection.find_one({"dId": dId})
     real_user_id = device_found.get("userId") if device_found else userId
 
+    # Si por alguna razón sigue sin encontrarse el usuario, evitamos fallar
+    if not real_user_id:
+        real_user_id = "unknown_user"
+
     # 2. Buscar la regla de alarma asociada para traer los detalles de condición y umbral
     alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable})
     
     variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
     condition = alarm_rule.get("condition", "") if alarm_rule else ""
     target_value = alarm_rule.get("value", "") if alarm_rule else ""
+
+    alert_message = f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}"
 
     timestamp = int(time.time() * 1000)
     notification_doc = {
@@ -504,15 +513,106 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
         "value": current_value,
         "condition": condition,
         "targetValue": target_value,
-        "message": f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}",
+        "message": alert_message,
         "leida": False,
         "time": timestamp
     }
 
+    # Guardar en MongoDB (Historial)
     await notifications_collection.insert_one(notification_doc)
     print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
 
+    # 3. PUBLICAR EN TIEMPO REAL A EMQX PARA QUE NUXT MUESTRE EL CARTEL AL INSTANTE
+    # Tópico dinámico universal: userId/dId/variable/notif (coincide exactamente con el comodín del frontend)
+    notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
+    
+    mqtt_payload = {
+        "active": True,
+        "msg": alert_message,
+        "type": "danger",
+        "value": current_value,
+        "timestamp": timestamp
+    }
+
+    try:
+        # Usamos el superusuario o credenciales internas de EMQX para inyectar el mensaje al broker
+        mqtt_host = os.getenv("EMQX_BROKER_HOST", "localhost")
+        publish.single(
+            topic=notif_topic,
+            payload=json.dumps(mqtt_payload),
+            hostname=mqtt_host,
+            port=1883,
+            auth={
+                "username": os.getenv("EMQX_NODE_SUPERUSER_USER", "admin"),
+                "password": os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "virus123")
+            }
+        )
+        print(f"📡 [MQTT-PUBLISHED] Notificación en tiempo real enviada al tópico: {notif_topic}")
+    except Exception as e:
+        print(f"❌ [MQTT-PUBLISH-ERROR] No se pudo publicar la alerta en MQTT: {e}")
+
     return {"status": "success", "message": "Alarm processed successfully"}
+
+# @app.post("/alarm-webhook")
+# @app.post("/api/alarm-webhook")
+# async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
+#     if token and token != EMQX_API_TOKEN:
+#         raise HTTPException(status_code=403, detail="Unauthorized webhook")
+
+#     try:
+#         request_data = await request.json()
+#     except Exception:
+#         return {"status": "error", "message": "Invalid JSON"}
+
+#     topic = request_data.get("topic", "")
+#     userId = request_data.get("userId")
+#     payload = request_data.get("payload", {})
+    
+#     current_value = 0.0
+#     try:
+#         if isinstance(payload, dict):
+#             current_value = float(payload.get("value", 0))
+#         elif isinstance(payload, str):
+#             parsed_payload = json.loads(payload)
+#             current_value = float(parsed_payload.get("value", 0))
+#         else:
+#             current_value = float(payload)
+#     except Exception:
+#         current_value = 0.0
+
+#     splitted_topic = topic.split("/")
+#     dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
+#     variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
+
+#     # 1. Buscar el dispositivo para heredar su userId real si viene vacío en el webhook
+#     device_found = await devices_collection.find_one({"dId": dId})
+#     real_user_id = device_found.get("userId") if device_found else userId
+
+#     # 2. Buscar la regla de alarma asociada para traer los detalles de condición y umbral
+#     alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable})
+    
+#     variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
+#     condition = alarm_rule.get("condition", "") if alarm_rule else ""
+#     target_value = alarm_rule.get("value", "") if alarm_rule else ""
+
+#     timestamp = int(time.time() * 1000)
+#     notification_doc = {
+#         "userId": real_user_id,
+#         "dId": dId,
+#         "variable": variable,
+#         "variableFullName": variable_full_name,
+#         "value": current_value,
+#         "condition": condition,
+#         "targetValue": target_value,
+#         "message": f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}",
+#         "leida": False,
+#         "time": timestamp
+#     }
+
+#     await notifications_collection.insert_one(notification_doc)
+#     print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
+
+#     return {"status": "success", "message": "Alarm processed successfully"}
 
 
 # @app.post("/alarm-webhook")
