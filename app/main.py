@@ -451,6 +451,7 @@ async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
             })
             
     return {"status": "success"}
+
 @app.post("/alarm-webhook")
 @app.post("/api/alarm-webhook")
 async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
@@ -508,6 +509,7 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
         "time": timestamp
     }
 
+    # Guardado seguro en MongoDB evitando duplicados de ID
     try:
         await notifications_collection.insert_one(notification_doc)
     except Exception:
@@ -520,42 +522,17 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
 
     print(f"🚨 [ALARM-TRIGGERED] Alerta registrada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
 
-    # 3. PUBLICAR EN TIEMPO REAL VÍA API REST HTTP DE EMQX (Usando la misma URL de ngrok configurada)
-    notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
-    mqtt_payload = {
-        "active": True,
-        "msg": alert_message,
-        "type": "danger",
-        "value": current_value,
-        "timestamp": timestamp
+    return {
+        "status": "success", 
+        "message": "Alarm processed and logged successfully",
+        "alarm": {
+            "active": True,
+            "msg": alert_message,
+            "variable": variable,
+            "value": current_value
+        }
     }
 
-    try:
-        emqx_api_host = os.getenv("EMQX_API_HOST", "https://recast-imperial-spinning.ngrok-free.dev")
-        base_url = f"{emqx_api_host}/api/v5" if emqx_api_host.startswith("http") else f"https://{emqx_api_host}/api/v5"
-        username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-        password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
-
-        async with httpx.AsyncClient(verify=False, timeout=5.0) as client_http:
-            login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
-            if login_res.status_code == 200:
-                token_emqx = login_res.json().get("token") or login_res.json().get("access_token")
-                headers_emqx = {"Authorization": f"Bearer {token_emqx}", "Content-Type": "application/json"}
-                
-                publish_payload = {
-                    "topic": notif_topic,
-                    "payload": json.dumps(mqtt_payload),
-                    "qos": 0,
-                    "retain": False
-                }
-                pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers_emqx)
-                print(f"📡 [EMQX-API-PUBLISH] Status: {pub_res.status_code} Tópico: {notif_topic}")
-            else:
-                print(f"❌ [EMQX-API-LOGIN-ERROR] No se pudo autenticar en la API de EMQX: {login_res.text}")
-    except Exception as e:
-        print(f"❌ [EMQX-API-PUBLISH-ERROR] No se pudo publicar la alerta por API HTTP: {e}")
-
-    return {"status": "success", "message": "Alarm processed successfully"}
 # @app.post("/alarm-webhook")
 # @app.post("/api/alarm-webhook")
 # async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
