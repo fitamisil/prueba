@@ -82,7 +82,7 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             # Reutilizamos el bridge de webhook ya existente en EMQX v5 (creado en main.py)
             bridge_id = "saver_webhook_bridge"
 
-            # Construir la regla SQL de EMQX v5 apuntando a la ruta oficial /rules
+            # Construir la regla SQL de EMQX v5 apuntando a la ruta oficial de reglas v5: /rule_engine/rules
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
             
@@ -101,12 +101,12 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "enable": new_alarm.get("status", True)
             }
 
-            rule_endpoint = f"{base_url}/rules"
-            print(f"🔍 [EMQX-DEBUG] Intentando crear regla en: {rule_endpoint}")
+            rule_endpoint = f"{base_url}/rule_engine/rules"
+            print(f"🔍 [EMQX-DEBUG] Intentando crear regla en ruta oficial v5: {rule_endpoint}")
 
             rule_res = await httpx_client.post(rule_endpoint, json=rule_payload, headers=headers)
             if rule_res.status_code not in [200, 201]:
-                rule_put_endpoint = f"{base_url}/rules/{rule_id}"
+                rule_put_endpoint = f"{base_url}/rule_engine/rules/{rule_id}"
                 print(f"🔍 [EMQX-DEBUG] Falló POST de regla, intentando PUT en: {rule_put_endpoint}")
                 rule_res = await httpx_client.put(rule_put_endpoint, json=rule_payload, headers=headers)
 
@@ -145,7 +145,7 @@ async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) 
         update_payload = {"enabled": status_val}
 
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            res = await httpx_client.put(f"{base_url}/rules/{emqx_rule_id}", json=update_payload, headers=headers)
+            res = await httpx_client.put(f"{base_url}/rule_engine/rules/{emqx_rule_id}", json=update_payload, headers=headers)
             if res.status_code == 200:
                 await alarm_rules_collection.update_one(
                     {"emqxRuleId": emqx_rule_id}, 
@@ -165,7 +165,7 @@ async def delete_alarm_rule_in_emqx(emqx_rule_id: str) -> bool:
         
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            await httpx_client.delete(f"{base_url}/rules/{emqx_rule_id}", headers=headers)
+            await httpx_client.delete(f"{base_url}/rule_engine/rules/{emqx_rule_id}", headers=headers)
             await alarm_rules_collection.delete_one({"emqxRuleId": emqx_rule_id})
             return True
     except Exception as error:
@@ -221,9 +221,6 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
     except Exception as error:
         print(error)
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-
 
 # from fastapi import APIRouter, HTTPException, Header, Query, Request, status
 # from pydantic import BaseModel
