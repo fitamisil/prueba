@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import httpx
 import time
+import asyncio
 
 router = APIRouter(prefix="", tags=["Alarms"])
 
@@ -57,29 +58,33 @@ async def get_emqx_v5_token():
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
     
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            res = await client.post(login_url, json={"username": username, "password": password})
-            if res.status_code == 200:
-                token = res.json().get("token") or res.json().get("access_token")
-                return base_url, token
-    except Exception as e:
-        print(f"[EMQX-LOGIN-EXCEPTION] Error de conexión: {e}")
+    for attempt in range(1, 4):
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                res = await client.post(login_url, json={"username": username, "password": password})
+                print(f"[EMQX-LOGIN-ATTEMPT {attempt}] Status: {res.status_code}")
+                if res.status_code == 200:
+                    token = res.json().get("token") or res.json().get("access_token")
+                    if token:
+                        return base_url, token
+        except Exception as e:
+            print(f"[EMQX-LOGIN-WARNING] Intento {attempt} fallido: {e}")
+        await asyncio.sleep(1)
+        
+    print("[EMQX-LOGIN-ERROR] No se pudo autenticar con EMQX v5 tras varios intentos.")
     return None, None
 
 async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
     try:
         base_url, token = await get_emqx_v5_token()
         if not token:
-            print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5")
+            print("[EMQX-ALARM-ERROR] No se pudo obtener token de autenticación para EMQX v5")
             return None
 
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             
-            # Reutilizamos el conector webhook que ya está activo y creado en main.py
             action_id = "webhook:saver_webhook_bridge"
-
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
             
@@ -89,7 +94,6 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 'AND is_not_null(payload.value)'
             )
             
-            # Formato exacto de reglas para EMQX 5.8
             rule_payload = {
                 "id": rule_id,
                 "sql": sql,
@@ -99,16 +103,20 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             }
 
             rule_endpoint = f"{base_url}/rules"
-            print(f"🔍 [EMQX-DEBUG] Registrando regla en EMQX 5.8: {rule_endpoint}")
+            print(f"🔍 [EMQX-DEBUG] Enviando POST a: {rule_endpoint}")
+            print(f"📦 [EMQX-PAYLOAD] {rule_payload}")
 
             rule_res = await httpx_client.post(rule_endpoint, json=rule_payload, headers=headers)
-            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code}")
+            print(f"📄 [EMQX-RESPONSE-TEXT] {rule_res.text}")
 
+            # Si falla con webhook:, probamos con user_provided o formato plano por si acaso
             if rule_res.status_code not in [200, 201]:
-                # Fallback por si la acción requiere la sintaxis user_provided
+                print("🔄 [EMQX-RETRY] Intentando con formato alternativo de acción...")
                 rule_payload["actions"] = ["saver_webhook_bridge"]
                 rule_res = await httpx_client.post(rule_endpoint, json=rule_payload, headers=headers)
-                print(f"⚙️ [EMQX-ALARM-RULE-RETRY] Status: {rule_res.status_code} Resp: {rule_res.text}")
+                print(f"⚙️ [EMQX-ALARM-RULE-RETRY] Status: {rule_res.status_code}")
+                print(f"📄 [EMQX-RESPONSE-TEXT-RETRY] {rule_res.text}")
 
             if rule_res.status_code in [200, 201]:
                 mongo_rule = {
@@ -125,13 +133,14 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 }
                 
                 await alarm_rules_collection.insert_one(mongo_rule)
+                print(f"✅ [EMQX-SUCCESS] Regla creada y guardada en MongoDB: {rule_id}")
                 return rule_id
             else:
-                print(f"❌ [EMQX-ALARM-ERROR] Rechazado por EMQX: {rule_res.text}")
+                print(f"❌ [EMQX-FATAL] EMQX rechazó la creación de la regla. Respuesta completa: {rule_res.text}")
                 return None
 
     except Exception as error:
-        print("[ALARM-CREATE-EXCEPTION]", error)
+        print("[ALARM-CREATE-EXCEPTION CRITICAL]", str(error))
         return None
 
 async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) -> bool:
@@ -145,6 +154,7 @@ async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) 
 
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             res = await httpx_client.put(f"{base_url}/rules/{emqx_rule_id}", json=update_payload, headers=headers)
+            print(f"🔄 [EMQX-UPDATE] Status: {res.status_code} Resp: {res.text}")
             if res.status_code == 200:
                 await alarm_rules_collection.update_one(
                     {"emqxRuleId": emqx_rule_id}, 
@@ -164,7 +174,8 @@ async def delete_alarm_rule_in_emqx(emqx_rule_id: str) -> bool:
         
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            await httpx_client.delete(f"{base_url}/rules/{emqx_rule_id}", headers=headers)
+            res = await httpx_client.delete(f"{base_url}/rules/{emqx_rule_id}", headers=headers)
+            print(f"🗑️ [EMQX-DELETE] Status: {res.status_code} Resp: {res.text}")
             await alarm_rules_collection.delete_one({"emqxRuleId": emqx_rule_id})
             return True
     except Exception as error:
@@ -188,7 +199,7 @@ async def create_alarm_rule_endpoint(body: AlarmRuleBody, token: str = Header(No
         else:
             raise HTTPException(status_code=500, detail="error creating rule in EMQX v5")
     except Exception as error:
-        print(error)
+        print("[ENDPOINT POST ERROR]", error)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.put("/alarm-rule")
@@ -204,7 +215,7 @@ async def update_alarm_rule_endpoint(body: AlarmStatusUpdateBody, token: str = H
         else:
             return {"status": "error"}
     except Exception as error:
-        print(error)
+        print("[ENDPOINT PUT ERROR]", error)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.delete("/alarm-rule")
@@ -218,7 +229,7 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
         else:
             return {"status": "error"}
     except Exception as error:
-        print(error)
+        print("[ENDPOINT DELETE ERROR]", error)
         raise HTTPException(status_code=500, detail="Internal server error")
 # from fastapi import APIRouter, HTTPException, Header, Query, Request, status
 # from pydantic import BaseModel
