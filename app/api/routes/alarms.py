@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException, Header, Query, Request, status
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -80,37 +79,10 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             
-            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            bridge_id = "alarm_webhook_bridge"
-            
-            # Payload de bridge compatible con EMQX v5
-            bridge_payload = {
-                "name": bridge_id,
-                "type": "http",
-                "connector": {
-                    "url": f"{public_api_url}/alarm-webhook",
-                    "method": "POST",
-                    "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
-                    "body": "${.}",
-                    "connect_timeout": "15s",
-                    "pool_size": 8
-                }
-            }
-            
-            # Probamos la ruta estándar de bridges en v5
-            bridge_endpoint = f"{base_url}/bridges"
-            print(f"🔍 [EMQX-DEBUG] Intentando crear bridge en: {bridge_endpoint}")
-            
-            conn_res = await httpx_client.post(bridge_endpoint, json=bridge_payload, headers=headers)
-            if conn_res.status_code not in [200, 201]:
-                # Si falla por POST, intentamos actualizar por PUT con el ID del bridge
-                put_endpoint = f"{base_url}/bridges/http:{bridge_id}"
-                print(f"🔍 [EMQX-DEBUG] Falló POST, intentando PUT en: {put_endpoint}")
-                conn_res = await httpx_client.put(put_endpoint, json=bridge_payload, headers=headers)
-            
-            print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {conn_res.status_code} Resp: {conn_res.text}")
+            # Reutilizamos el bridge de webhook ya existente en EMQX v5 (creado en main.py)
+            bridge_id = "saver_webhook_bridge"
 
-            # Construir la regla SQL de EMQX v5
+            # Construir la regla SQL de EMQX v5 apuntando a la ruta oficial /rules
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
             
@@ -249,7 +221,6 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
     except Exception as error:
         print(error)
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 
 
