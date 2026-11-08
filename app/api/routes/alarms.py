@@ -44,10 +44,13 @@ class AlarmStatusUpdateBody(BaseModel):
 
 
 # --- FUNCIONES DE EMQX v5 ---
+
 async def get_emqx_v5_token():
     host = os.getenv("EMQX_API_HOST")
     if not host:
+        print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido en las variables de entorno.")
         return None, None
+        
     base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
@@ -58,9 +61,29 @@ async def get_emqx_v5_token():
             if res.status_code == 200:
                 token = res.json().get("token") or res.json().get("access_token")
                 return base_url, token
+            else:
+                print(f"[EMQX-LOGIN-ERROR] Falló el login en alarms.py: Status {res.status_code} - {res.text}")
     except Exception as e:
-        print(f"[EMQX-LOGIN-ERROR] {e}")
+        print(f"[EMQX-LOGIN-EXCEPTION] {e}")
     return None, None
+
+# async def get_emqx_v5_token():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         return None, None
+#     base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    
+#     try:
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+#             res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
+#             if res.status_code == 200:
+#                 token = res.json().get("token") or res.json().get("access_token")
+#                 return base_url, token
+#     except Exception as e:
+#         print(f"[EMQX-LOGIN-ERROR] {e}")
+#     return None, None
 
 async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
     try:
