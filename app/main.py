@@ -90,27 +90,22 @@ async def create_emqx_v5_webhook_rule():
         try:
             async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
                 login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
-                print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
-                
                 if login_res.status_code != 200:
                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
                     return
                 
                 token = login_res.json().get("token") or login_res.json().get("access_token")
                 if not token:
-                    print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
                     return
 
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Puente y regla para el guardado general de datos (/saver-webhook)
-                # En EMQX v5 el campo de la URL se define como "server" o "url" dependiendo de la versión exacta, 
-                # aseguramos la estructura correcta para el motor de acciones HTTP:
-                connector_payload = {
+                # 1. Configuración para el Saver Webhook
+                saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
-                    "server": f"{public_api_url}/saver-webhook",
+                    "url": f"{public_api_url}/saver-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
@@ -118,31 +113,23 @@ async def create_emqx_v5_webhook_rule():
                     "pool_size": 8
                 }
 
-                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
-                if conn_res.status_code not in [200, 201]:
-                    conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
-                
-                print(f"🌉 [EMQX-CONNECTOR-SAVER] Status: {conn_res.status_code} Resp: {conn_res.text}")
-                await asyncio.sleep(1)
+                s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
+                if s_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
 
-                rule_payload = {
-                    "id": "saver_webhook_rule", 
-                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+                rule_saver_payload = {
+                    "id": "saver_webhook_rule",
+                    "sql": "SELECT * FROM \"+/+/+/sdata\"",
                     "actions": ["http:saver_webhook_bridge"]
                 }
-
-                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-                if rule_res.status_code not in [200, 201]:
-                    rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
-
-                print(f"⚙️ [EMQX-RULE-SAVER] Status: {rule_res.status_code} Resp: {rule_res.text}")
+                await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
 
-                # 2. Puente dedicado para las alarmas (/alarm-webhook)
-                alarm_connector_payload = {
+                # 2. Configuración exacta para el Alarm Webhook (Conector + Endpoint integrados en EMQX v5)
+                alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
-                    "server": f"{public_api_url}/alarm-webhook",
+                    "url": f"{public_api_url}/alarm-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
@@ -150,22 +137,17 @@ async def create_emqx_v5_webhook_rule():
                     "pool_size": 4
                 }
 
-                alarm_conn_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_connector_payload, headers=headers)
-                if alarm_conn_res.status_code not in [200, 201]:
-                    alarm_conn_res = await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_connector_payload, headers=headers)
-                
-                print(f"🌉 [EMQX-CONNECTOR-ALARM] Status: {alarm_conn_res.status_code} Resp: {alarm_conn_res.text}")
-                print("✅ [EMQX-INIT] Todos los puentes y reglas base configurados con éxito.")
+                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
+                if a_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+
+                print("✅ [EMQX-INIT] Conectores y puentes HTTP configurados correctamente en EMQX v5.")
                 break
                 
         except Exception as error:
-            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
-            if attempt < max_retries:
-                print("⏳ Reintentando conexión con EMQX en 5 segundos...")
-                await asyncio.sleep(5)
-            else:
-                print(f"❌ [EMQX-EXCEPTION CRITICAL] Se agotaron los reintentos.")
-                
+            print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
+            await asyncio.sleep(5)
+            
 async def check_mqtt_superuser(db):
     try:
         collection = db["emqxauthrules"]
