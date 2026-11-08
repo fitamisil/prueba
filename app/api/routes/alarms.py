@@ -57,29 +57,30 @@ async def get_emqx_v5_token():
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
     
+    print(f"🔍 [EMQX-AUTH] Conectando a login en: {login_url} con usuario: {username}")
+    
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
             res = await client.post(login_url, json={"username": username, "password": password})
+            print(f"🔍 [EMQX-AUTH] Status login recibido: {res.status_code} - Resp: {res.text}")
             if res.status_code == 200:
                 token = res.json().get("token") or res.json().get("access_token")
                 return base_url, token
-            else:
-                print(f"[EMQX-LOGIN-ERROR] Falló el login: Status {res.status_code} - Resp: {res.text}")
     except Exception as e:
-        print(f"[EMQX-LOGIN-EXCEPTION] {e}")
+        print(f"[EMQX-LOGIN-EXCEPTION] Error de red o conexión: {e}")
     return None, None
 
 async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
     try:
         base_url, token = await get_emqx_v5_token()
         if not token:
-            print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5")
+            print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5 para crear la regla")
             return None
 
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             
-            # 1. Asegurar la existencia del Bridge de Alarmas en EMQX v5
+            # 1. Asegurar la existencia del Bridge HTTP de Alertas en EMQX v5
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             bridge_id = "alarm_webhook_bridge"
             
@@ -96,12 +97,11 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 }
             }
             
-            # Intentamos registrar el bridge por POST o actualizarlo por PUT
             bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
             if bridge_res.status_code not in [200, 201]:
                 await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
 
-            # 2. Construir la regla SQL de EMQX v5 apuntando a la ruta oficial /rules
+            # 2. Construir la regla SQL utilizando la ruta oficial del motor de reglas en EMQX v5
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
             
@@ -120,16 +120,18 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "enable": new_alarm.get("status", True)
             }
 
-            rule_endpoint = f"{base_url}/rules"
-            print(f"🔍 [EMQX-DEBUG] Intentando crear regla en: {rule_endpoint}")
+            # Ruta estándar de reglas en EMQX v5 (Rule Engine)
+            rule_endpoint = f"{base_url}/rule_engine/rules"
+            print(f"🔍 [EMQX-DEBUG] Enviando regla a: {rule_endpoint}")
 
             rule_res = await httpx_client.post(rule_endpoint, json=rule_payload, headers=headers)
+            print(f"⚙️ [EMQX-ALARM-RULE] POST Status: {rule_res.status_code} Resp: {rule_res.text}")
+            
             if rule_res.status_code not in [200, 201]:
-                rule_put_endpoint = f"{base_url}/rules/{rule_id}"
-                print(f"🔍 [EMQX-DEBUG] Falló POST de regla, intentando PUT en: {rule_put_endpoint}")
+                rule_put_endpoint = f"{base_url}/rule_engine/rules/{rule_id}"
+                print(f"🔍 [EMQX-DEBUG] Falló POST, intentando PUT en: {rule_put_endpoint}")
                 rule_res = await httpx_client.put(rule_put_endpoint, json=rule_payload, headers=headers)
-
-            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+                print(f"⚙️ [EMQX-ALARM-RULE] PUT Status: {rule_res.status_code} Resp: {rule_res.text}")
 
             if rule_res.status_code in [200, 201]:
                 mongo_rule = {
@@ -148,10 +150,11 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 await alarm_rules_collection.insert_one(mongo_rule)
                 return rule_id
             else:
+                print(f"❌ [EMQX-ALARM-ERROR] No se pudo crear la regla. Respuesta del broker: {rule_res.text}")
                 return None
 
     except Exception as error:
-        print("[ALARM-CREATE-ERROR]", error)
+        print("[ALARM-CREATE-EXCEPTION]", error)
         return None
 
 async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) -> bool:
@@ -164,7 +167,7 @@ async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) 
         update_payload = {"enabled": status_val}
 
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            res = await httpx_client.put(f"{base_url}/rules/{emqx_rule_id}", json=update_payload, headers=headers)
+            res = await httpx_client.put(f"{base_url}/rule_engine/rules/{emqx_rule_id}", json=update_payload, headers=headers)
             if res.status_code == 200:
                 await alarm_rules_collection.update_one(
                     {"emqxRuleId": emqx_rule_id}, 
@@ -184,7 +187,7 @@ async def delete_alarm_rule_in_emqx(emqx_rule_id: str) -> bool:
         
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
-            await httpx_client.delete(f"{base_url}/rules/{emqx_rule_id}", headers=headers)
+            await httpx_client.delete(f"{base_url}/rule_engine/rules/{emqx_rule_id}", headers=headers)
             await alarm_rules_collection.delete_one({"emqxRuleId": emqx_rule_id})
             return True
     except Exception as error:
@@ -206,7 +209,7 @@ async def create_alarm_rule_endpoint(body: AlarmRuleBody, token: str = Header(No
         if r:
             return {"status": "success"}
         else:
-            raise HTTPException(status_code=500, detail="error creating rule")
+            raise HTTPException(status_code=500, detail="error creating rule in EMQX v5")
     except Exception as error:
         print(error)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -240,7 +243,6 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
     except Exception as error:
         print(error)
         raise HTTPException(status_code=500, detail="Internal server error")
-        
 # from fastapi import APIRouter, HTTPException, Header, Query, Request, status
 # from pydantic import BaseModel
 # from typing import Optional, Any
