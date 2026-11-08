@@ -51,18 +51,29 @@ async def get_emqx_v5_token():
         print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido en las variables de entorno.")
         return None, None
         
-    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+    # Limpiamos barras finales por si acaso
+    host = host.rstrip("/")
+    
+    # Aseguramos que termine en /api/v5
+    if not host.endswith("/api/v5"):
+        base_url = f"{host}/api/v5"
+    else:
+        base_url = host
+        
+    login_url = f"{base_url}/login"
+    print(f"🔍 [EMQX-DEBUG] Intentando login en URL: {login_url}")
+
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
     
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            res = await client.post(f"{base_url}/login", json={"username": username, "password": password})
+            res = await client.post(login_url, json={"username": username, "password": password})
             if res.status_code == 200:
                 token = res.json().get("token") or res.json().get("access_token")
                 return base_url, token
             else:
-                print(f"[EMQX-LOGIN-ERROR] Falló el login en alarms.py: Status {res.status_code} - {res.text}")
+                print(f"[EMQX-LOGIN-ERROR] Falló el login en alarms.py: Status {res.status_code} - Resp: {res.text}")
     except Exception as e:
         print(f"[EMQX-LOGIN-EXCEPTION] {e}")
     return None, None
