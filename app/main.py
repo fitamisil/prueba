@@ -105,10 +105,12 @@ async def create_emqx_v5_webhook_rule():
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
                 # 1. Puente y regla para el guardado general de datos (/saver-webhook)
+                # En EMQX v5 el campo de la URL se define como "server" o "url" dependiendo de la versión exacta, 
+                # aseguramos la estructura correcta para el motor de acciones HTTP:
                 connector_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
-                    "url": f"{public_api_url}/saver-webhook",
+                    "server": f"{public_api_url}/saver-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
@@ -140,7 +142,7 @@ async def create_emqx_v5_webhook_rule():
                 alarm_connector_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
-                    "url": f"{public_api_url}/alarm-webhook",
+                    "server": f"{public_api_url}/alarm-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
