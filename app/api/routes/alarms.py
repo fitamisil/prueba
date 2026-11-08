@@ -84,7 +84,8 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             
-            action_id = "webhook:saver_webhook_bridge"
+            # Usamos el prefijo http: tal como está registrado en el main.py
+            action_id = "http:saver_webhook_bridge"
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
             
@@ -110,13 +111,11 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code}")
             print(f"📄 [EMQX-RESPONSE-TEXT] {rule_res.text}")
 
-            # Si falla con webhook:, probamos con user_provided o formato plano por si acaso
             if rule_res.status_code not in [200, 201]:
-                print("🔄 [EMQX-RETRY] Intentando con formato alternativo de acción...")
-                rule_payload["actions"] = ["saver_webhook_bridge"]
-                rule_res = await httpx_client.post(rule_endpoint, json=rule_payload, headers=headers)
-                print(f"⚙️ [EMQX-ALARM-RULE-RETRY] Status: {rule_res.status_code}")
-                print(f"📄 [EMQX-RESPONSE-TEXT-RETRY] {rule_res.text}")
+                # Si ya existe con ese ID, intentamos un PUT para actualizarla/crearla de forma segura
+                rule_res = await httpx_client.put(f"{base_url}/rules/{rule_id}", json=rule_payload, headers=headers)
+                print(f"⚙️ [EMQX-ALARM-RULE-PUT] Status: {rule_res.status_code}")
+                print(f"📄 [EMQX-RESPONSE-TEXT-PUT] {rule_res.text}")
 
             if rule_res.status_code in [200, 201]:
                 mongo_rule = {
