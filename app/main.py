@@ -101,11 +101,12 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Configuración para el Saver Webhook
+                # 1. Configuración para el Saver Webhook (con server y path separados)
                 saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
-                    "url": f"{public_api_url}/saver-webhook",
+                    "server": public_api_url,
+                    "path": "/saver-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
@@ -125,11 +126,12 @@ async def create_emqx_v5_webhook_rule():
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
 
-                # 2. Configuración exacta para el Alarm Webhook (Conector + Endpoint integrados en EMQX v5)
+                # 2. Configuración para el Alarm Webhook (con server y path separados)
                 alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
-                    "url": f"{public_api_url}/alarm-webhook",
+                    "server": public_api_url,
+                    "path": "/alarm-webhook",
                     "method": "post",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
@@ -141,13 +143,13 @@ async def create_emqx_v5_webhook_rule():
                 if a_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
 
-                print("✅ [EMQX-INIT] Conectores y puentes HTTP configurados correctamente en EMQX v5.")
+                print("✅ [EMQX-INIT] Conectores y puentes HTTP configurados correctamente con server y path en EMQX v5.")
                 break
                 
         except Exception as error:
             print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
             await asyncio.sleep(5)
-            
+
 async def check_mqtt_superuser(db):
     try:
         collection = db["emqxauthrules"]
