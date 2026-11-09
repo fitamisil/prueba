@@ -80,30 +80,14 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
         async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
             
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            connector_id = "http_conn_alarm"
             action_id = "alarm_webhook_bridge"
             
-            # 1. Crear el Conector HTTP en EMQX v5
-            connector_payload = {
-                "name": connector_id,
-                "type": "http",
-                "config": {
-                    "url": public_api_url,
-                    "connect_timeout": "15s",
-                    "pool_size": 8
-                }
-            }
-            
-            conn_res = await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
-            if conn_res.status_code not in [200, 201]:
-                await httpx_client.put(f"{base_url}/connectors/{connector_id}", json=connector_payload, headers=headers)
-
-            # 2. Crear la Acción asociada a ese conector (rellenando el path y las cabeceras)
+            # Payload oficial adaptado al esquema de acciones v2 de EMQX v5
             action_payload = {
                 "name": action_id,
                 "type": "http",
-                "connector": connector_id,
-                "config": {
+                "connector": "http_conn_alarm",
+                "parameters": {
                     "path": "/alarm-webhook",
                     "method": "post",
                     "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
@@ -111,13 +95,20 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 }
             }
             
+            print(f"📦 [EMQX-DEBUG-ACTION] Enviando payload a /actions: {action_payload}")
+            
             action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
             if action_res.status_code not in [200, 201]:
-                await httpx_client.put(f"{base_url}/actions/http:{action_id}", json=action_payload, headers=headers)
+                print(f"⚠️ [EMQX-DEBUG-ACTION] Falló POST /actions ({action_res.status_code}), intentando PUT...")
+                action_res = await httpx_client.put(f"{base_url}/actions/http:{action_id}", json=action_payload, headers=headers)
             
             print(f"🌉 [EMQX-ALARM-ACTION] Status: {action_res.status_code} Resp: {action_res.text}")
 
-            # 3. Construir la regla SQL de EMQX v5
+            if action_res.status_code not in [200, 201]:
+                print(f"❌ [EMQX-FATAL] No se pudo crear la acción/conector en EMQX: {action_res.text}")
+                return None
+
+            # 2. Construir la regla SQL de EMQX v5
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
@@ -137,9 +128,13 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "enable": new_alarm.get("status", True)
             }
 
+            print(f"📦 [EMQX-DEBUG-RULE] Enviando regla a /rules: {rule_payload}")
+
             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
             if rule_res.status_code not in [200, 201]:
                 rule_res = await httpx_client.put(f"{base_url}/rules/{rule_id}", json=rule_payload, headers=headers)
+
+            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
 
             if rule_res.status_code in [200, 201]:
                 mongo_rule = {
