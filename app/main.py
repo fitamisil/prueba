@@ -124,7 +124,7 @@ async def create_emqx_v5_webhook_rule():
                 rule_saver_payload = {
                     "id": "saver_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
-                    "actions": ["saver_webhook_bridge"]
+                    "actions": ["http:saver_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
@@ -151,7 +151,7 @@ async def create_emqx_v5_webhook_rule():
                 rule_alarm_payload = {
                     "id": "alarm_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
-                    "actions": ["alarm_webhook_bridge"]
+                    "actions": ["http:alarm_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
 
