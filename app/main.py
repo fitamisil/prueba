@@ -118,18 +118,11 @@ async def create_emqx_v5_webhook_rule():
                 s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
                 if s_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
-                
-                await asyncio.sleep(2)
 
                 rule_saver_payload = {
                     "id": "saver_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
-                    "actions": [{
-                        "name": "http:saver_webhook_bridge",
-                        "params": {
-                            "connector": "saver_webhook_bridge"
-                        }
-                    }]
+                    "actions": ["saver_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
@@ -151,18 +144,11 @@ async def create_emqx_v5_webhook_rule():
                 a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
                 if a_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
-                
-                await asyncio.sleep(2)
 
                 rule_alarm_payload = {
                     "id": "alarm_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
-                    "actions": [{
-                        "name": "http:alarm_webhook_bridge",
-                        "params": {
-                            "connector": "alarm_webhook_bridge"
-                        }
-                    }]
+                    "actions": ["alarm_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
 
