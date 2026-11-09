@@ -103,7 +103,7 @@ async def create_emqx_v5_webhook_rule():
 
                 # 1. Saver Webhook Bridge & Rule
                 saver_bridge_payload = {
-                    "name": "saver_webhook_bridge",
+                    "name": "http:saver_webhook_bridge",
                     "type": "http",
                     "config": {
                         "url": f"{public_api_url}/saver-webhook",
@@ -130,7 +130,7 @@ async def create_emqx_v5_webhook_rule():
 
                 # 2. Alarm Webhook Bridge & Rule
                 alarm_bridge_payload = {
-                    "name": "alarm_webhook_bridge",
+                    "name": "http:alarm_webhook_bridge",
                     "type": "http",
                     "config": {
                         "url": f"{public_api_url}/alarm-webhook",
@@ -154,7 +154,6 @@ async def create_emqx_v5_webhook_rule():
                     "actions": ["http:alarm_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
-
                 print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
                 break
                 
