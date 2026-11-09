@@ -79,9 +79,10 @@ async def create_emqx_v5_webhook_rule():
         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
-    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+    base_url = f"{host}/api/v5" if host.startswith(("http://", "https://")) else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    api_token = os.getenv("EMQX_API_TOKEN")
 
     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
 
@@ -101,14 +102,14 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Saver Webhook
+                # 1. Saver Webhook (Bridge y Regla)
                 saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
                     "config": {
                         "url": f"{public_api_url}/saver-webhook",
                         "method": "post",
-                        "headers": {"token": EMQX_API_TOKEN},
+                        "headers": {"token": api_token},
                         "body": "${.}",
                         "connect_timeout": "15s",
                         "pool_size": 8
@@ -119,6 +120,9 @@ async def create_emqx_v5_webhook_rule():
                 if s_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
 
+                # Pausa indispensable para sincronizar el alta en memoria del broker
+                await asyncio.sleep(2)
+
                 rule_saver_payload = {
                     "id": "saver_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
@@ -127,14 +131,14 @@ async def create_emqx_v5_webhook_rule():
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
 
-                # 2. Alarm Webhook
+                # 2. Alarm Webhook (Bridge y Regla con condición SQL)
                 alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
                     "config": {
                         "url": f"{public_api_url}/alarm-webhook",
                         "method": "post",
-                        "headers": {"token": EMQX_API_TOKEN},
+                        "headers": {"token": api_token},
                         "body": "${.}",
                         "connect_timeout": "15s",
                         "pool_size": 4
@@ -144,6 +148,9 @@ async def create_emqx_v5_webhook_rule():
                 a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
                 if a_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+
+                # Pausa indispensable para sincronizar el alta en memoria del broker
+                await asyncio.sleep(2)
 
                 rule_alarm_payload = {
                     "id": "alarm_webhook_rule",
