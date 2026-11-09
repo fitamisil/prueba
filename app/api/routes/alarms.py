@@ -69,104 +69,6 @@ async def get_emqx_v5_token():
         print(f"[EMQX-LOGIN-EXCEPTION] {e}")
     return None, None
 
-async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
-    try:
-        base_url, token = await get_emqx_v5_token()
-        if not token:
-            print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5")
-            return None
-
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
-            
-            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            connector_id = "http_conn_alarm"
-            bridge_id = "alarm_webhook_bridge"
-            
-            # 1. Crear el Conector HTTP primero para que no aparezca vacío en el dashboard
-            connector_payload = {
-                "name": connector_id,
-                "type": "http",
-                "config": {
-                    "url": public_api_url,
-                    "connect_timeout": "15s",
-                    "pool_size": 8
-                }
-            }
-            conn_res = await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
-            if conn_res.status_code not in [200, 201]:
-                await httpx_client.put(f"{base_url}/connectors/{connector_id}", json=connector_payload, headers=headers)
-
-            # 2. Configurar el Bridge HTTP en EMQX v5 enlazado al conector creado
-            bridge_payload = {
-                "name": bridge_id,
-                "type": "http",
-                "connector": connector_id,
-                "config": {
-                    "url": f"{public_api_url}/alarm-webhook",
-                    "method": "post",
-                    "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
-                    "body": "${.}",
-                    "connect_timeout": "15s",
-                    "pool_size": 8
-                }
-            }
-            
-            bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
-            if bridge_res.status_code not in [200, 201]:
-                bridge_res = await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
-            
-            print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
-
-            # 3. Construir la regla SQL de EMQX v5
-            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
-            safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
-            rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
-            
-            sql = (
-                f'SELECT * FROM "{topic}" '
-                f'WHERE payload.value {new_alarm.get("condition")} {new_alarm.get("value")} '
-                'AND is_not_null(payload.value)'
-            )
-            
-            rule_payload = {
-                "id": rule_id,
-                "name": rule_id,
-                "sql": sql,
-                "actions": [f"http:{bridge_id}"],
-                "description": f"Alarm rule for {new_alarm.get('variableFullName', '')}",
-                "enable": new_alarm.get("status", True)
-            }
-
-            rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-            if rule_res.status_code not in [200, 201]:
-                rule_res = await httpx_client.put(f"{base_url}/rules/{rule_id}", json=rule_payload, headers=headers)
-
-            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
-
-            if rule_res.status_code in [200, 201]:
-                mongo_rule = {
-                    "userId": new_alarm.get("userId"),
-                    "dId": new_alarm.get("dId"),
-                    "emqxRuleId": rule_id,
-                    "status": new_alarm.get("status", True),
-                    "variable": new_alarm.get("variable"),
-                    "variableFullName": new_alarm.get("variableFullName"),
-                    "value": new_alarm.get("value"),
-                    "condition": new_alarm.get("condition"),
-                    "triggerTime": new_alarm.get("triggerTime"),
-                    "createTime": int(time.time() * 1000)
-                }
-                
-                await alarm_rules_collection.insert_one(mongo_rule)
-                return rule_id
-            else:
-                return None
-
-    except Exception as error:
-        print("[ALARM-CREATE-ERROR]", error)
-        return None
-
 # async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
 #     try:
 #         base_url, token = await get_emqx_v5_token()
@@ -175,15 +77,31 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
 #             return None
 
 #         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-#         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+#         async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
             
-#             # 1. Configurar el Bridge HTTP en EMQX v5
 #             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+#             connector_id = "http_conn_alarm"
 #             bridge_id = "alarm_webhook_bridge"
             
+#             # 1. Crear el Conector HTTP primero para que no aparezca vacío en el dashboard
+#             connector_payload = {
+#                 "name": connector_id,
+#                 "type": "http",
+#                 "config": {
+#                     "url": public_api_url,
+#                     "connect_timeout": "15s",
+#                     "pool_size": 8
+#                 }
+#             }
+#             conn_res = await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
+#             if conn_res.status_code not in [200, 201]:
+#                 await httpx_client.put(f"{base_url}/connectors/{connector_id}", json=connector_payload, headers=headers)
+
+#             # 2. Configurar el Bridge HTTP en EMQX v5 enlazado al conector creado
 #             bridge_payload = {
 #                 "name": bridge_id,
 #                 "type": "http",
+#                 "connector": connector_id,
 #                 "config": {
 #                     "url": f"{public_api_url}/alarm-webhook",
 #                     "method": "post",
@@ -194,11 +112,13 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
 #                 }
 #             }
             
-#             # Intentar crear el bridge; si ya existe (400/409), continuamos directo a usarlo
-#             conn_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
-#             print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {conn_res.status_code} Resp: {conn_res.text}")
+#             bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+#             if bridge_res.status_code not in [200, 201]:
+#                 bridge_res = await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
+            
+#             print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
 
-#             # 2. Construir la regla SQL de EMQX v5
+#             # 3. Construir la regla SQL de EMQX v5
 #             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
 #             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
 #             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
@@ -246,6 +166,86 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
 #     except Exception as error:
 #         print("[ALARM-CREATE-ERROR]", error)
 #         return None
+
+async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
+    try:
+        base_url, token = await get_emqx_v5_token()
+        if not token:
+            print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5")
+            return None
+
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+            
+            # 1. Configurar el Bridge HTTP en EMQX v5
+            public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+            bridge_id = "alarm_webhook_bridge"
+            
+            bridge_payload = {
+                "name": bridge_id,
+                "type": "http",
+                "config": {
+                    "url": f"{public_api_url}/alarm-webhook",
+                    "method": "post",
+                    "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
+                    "body": "${.}",
+                    "connect_timeout": "15s",
+                    "pool_size": 8
+                }
+            }
+            
+            # Intentar crear el bridge; si ya existe (400/409), continuamos directo a usarlo
+            conn_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+            print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {conn_res.status_code} Resp: {conn_res.text}")
+
+            # 2. Construir la regla SQL de EMQX v5
+            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
+            safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
+            rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
+            
+            sql = (
+                f'SELECT * FROM "{topic}" '
+                f'WHERE payload.value {new_alarm.get("condition")} {new_alarm.get("value")} '
+                'AND is_not_null(payload.value)'
+            )
+            
+            rule_payload = {
+                "id": rule_id,
+                "name": rule_id,
+                "sql": sql,
+                "actions": [f"http:{bridge_id}"],
+                "description": f"Alarm rule for {new_alarm.get('variableFullName', '')}",
+                "enable": new_alarm.get("status", True)
+            }
+
+            rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+            if rule_res.status_code not in [200, 201]:
+                rule_res = await httpx_client.put(f"{base_url}/rules/{rule_id}", json=rule_payload, headers=headers)
+
+            print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+
+            if rule_res.status_code in [200, 201]:
+                mongo_rule = {
+                    "userId": new_alarm.get("userId"),
+                    "dId": new_alarm.get("dId"),
+                    "emqxRuleId": rule_id,
+                    "status": new_alarm.get("status", True),
+                    "variable": new_alarm.get("variable"),
+                    "variableFullName": new_alarm.get("variableFullName"),
+                    "value": new_alarm.get("value"),
+                    "condition": new_alarm.get("condition"),
+                    "triggerTime": new_alarm.get("triggerTime"),
+                    "createTime": int(time.time() * 1000)
+                }
+                
+                await alarm_rules_collection.insert_one(mongo_rule)
+                return rule_id
+            else:
+                return None
+
+    except Exception as error:
+        print("[ALARM-CREATE-ERROR]", error)
+        return None
 
 async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) -> bool:
     try:
