@@ -61,16 +61,41 @@ async def get_emqx_v5_token():
     
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
-            # Correcto para EMQX v5: Usar Basic Auth
-            res = await client.post(login_url, auth=(username, password))
+            res = await client.post(login_url, json={"username": username, "password": password})
             if res.status_code == 200:
                 token = res.json().get("token") or res.json().get("access_token")
                 return base_url, token
             else:
-                print(f"[EMQX-LOGIN-ERROR] Falló el login en alarms.py: Status {res.status_code} Resp: {res.text}")
+                print(f"[EMQX-LOGIN-ERROR] Status {res.status_code} Resp: {res.text}")
     except Exception as e:
         print(f"[EMQX-LOGIN-EXCEPTION] {e}")
     return None, None
+
+# async def get_emqx_v5_token():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido en las variables de entorno.")
+#         return None, None
+        
+#     host = host.rstrip("/")
+#     base_url = f"{host}/api/v5" if not host.endswith("/api/v5") else host
+#     login_url = f"{base_url}/login"
+    
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    
+#     try:
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+#             # Correcto para EMQX v5: Usar Basic Auth
+#             res = await client.post(login_url, auth=(username, password))
+#             if res.status_code == 200:
+#                 token = res.json().get("token") or res.json().get("access_token")
+#                 return base_url, token
+#             else:
+#                 print(f"[EMQX-LOGIN-ERROR] Falló el login en alarms.py: Status {res.status_code} Resp: {res.text}")
+#     except Exception as e:
+#         print(f"[EMQX-LOGIN-EXCEPTION] {e}")
+#     return None, None
 
 
 async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
