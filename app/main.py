@@ -77,10 +77,6 @@ async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST")
     if not host:
         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
-        returnasync def create_emqx_v5_webhook_rule():
-    host = os.getenv("EMQX_API_HOST")
-    if not host:
-        print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
     base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
