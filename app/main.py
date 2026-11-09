@@ -101,18 +101,17 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Configuración exacta para el Saver Webhook usando el objeto config
+                # 1. Configuración exacta para el Saver Webhook (separando server y path para que la UI los muestre bien)
                 saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
-                    "method": "post",
+                    "server": public_api_url,
+                    "path": "/saver-webhook",
+                    "method": "POST",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
-                    "config": {
-                        "url": f"{public_api_url}/saver-webhook",
-                        "connect_timeout": "15s",
-                        "pool_size": 8
-                    }
+                    "connect_timeout": "15s",
+                    "pool_size": 8
                 }
 
                 s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
@@ -127,25 +126,24 @@ async def create_emqx_v5_webhook_rule():
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
 
-                # 2. Configuración exacta para el Alarm Webhook usando el objeto config
+                # 2. Configuración exacta para el Alarm Webhook (separando server y path)
                 alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
-                    "method": "post",
+                    "server": public_api_url,
+                    "path": "/alarm-webhook",
+                    "method": "POST",
                     "headers": {"token": EMQX_API_TOKEN},
                     "body": "${.}",
-                    "config": {
-                        "url": f"{public_api_url}/alarm-webhook",
-                        "connect_timeout": "15s",
-                        "pool_size": 4
-                    }
+                    "connect_timeout": "15s",
+                    "pool_size": 4
                 }
 
                 a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
                 if a_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
 
-                print("✅ [EMQX-INIT] Conectores y puentes HTTP configurados correctamente usando config.url en EMQX v5.")
+                print("✅ [EMQX-INIT] Conectores y puentes HTTP configurados correctamente con server y path separados.")
                 break
                 
         except Exception as error:
