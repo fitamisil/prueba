@@ -6,10 +6,10 @@ import os
 import httpx
 import time
 import asyncio
+import re
 
 router = APIRouter(prefix="", tags=["Alarms"])
 
-# Obtener la conexión a MongoDB y la colección
 MONGO_URL = os.getenv("MONGO_URI", "mongodb+srv://pigomezschneider_db_user:4WvulXjWAN5QBEBL@cluster0.rcvykvz.mongodb.net/?appName=Cluster0")
 client = AsyncIOMotorClient(MONGO_URL)
 database = client.iot_db
@@ -17,7 +17,6 @@ alarm_rules_collection = database.get_collection("alarmrules")
 
 EMQX_API_TOKEN = "tu_token_secreto_emqx"
 
-# Helper para autenticar token JWT
 from jose import jwt, JWTError
 
 SECRET_KEY = "clave-secreta-super-segura-iot-gl"
@@ -38,7 +37,6 @@ def get_user_id_from_token(token: str = Header(None)) -> str:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 
-# --- MODELOS PYDANTIC ---
 class AlarmRuleBody(BaseModel):
     newRule: dict
 
@@ -46,11 +44,10 @@ class AlarmStatusUpdateBody(BaseModel):
     rule: dict
 
 
-# --- FUNCIONES DE EMQX v5 ---
 async def get_emqx_v5_token():
     host = os.getenv("EMQX_API_HOST")
     if not host:
-        print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido en las variables de entorno.")
+        print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido.")
         return None, None
         
     host = host.rstrip("/")
@@ -74,6 +71,41 @@ async def get_emqx_v5_token():
         
     return None, None
 
+
+async def ensure_alarm_bridge_exists(base_url: str, token: str):
+    """Se asegura de que el puente HTTP de alarmas exista en EMQX antes de crear la regla."""
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+    
+    alarm_bridge_payload = {
+        "name": "http:alarm_webhook_bridge",
+        "type": "http",
+        "config": {
+            "url": f"{public_api_url}/alarm-webhook",
+            "method": "post",
+            "headers": {"token": EMQX_API_TOKEN},
+            "body": "${.}",
+            "connect_timeout": "15s",
+            "pool_size": 4
+        }
+    }
+
+    async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+        # Verificar si el bridge ya existe
+        check_res = await client.get(f"{base_url}/bridges/http:alarm_webhook_bridge", headers=headers)
+        if check_res.status_code == 200:
+            return True
+            
+        # Si no existe, lo creamos
+        create_res = await client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
+        if create_res.status_code in [200, 201]:
+            return True
+            
+        # Forzar por PUT si falló el POST
+        put_res = await client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+        return put_res.status_code in [200, 201]
+
+
 async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
     try:
         base_url, token = await get_emqx_v5_token()
@@ -81,13 +113,21 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             print("[EMQX-ALARM-ERROR] No se pudo obtener token de autenticación para EMQX v5")
             return None
 
+        # 1. Asegurar que el bridge HTTP esté creado antes de registrar la regla
+        bridge_ok = await ensure_alarm_bridge_exists(base_url, token)
+        if not bridge_ok:
+            print("[EMQX-ALARM-ERROR] No se pudo asegurar el bridge HTTP para las alarmas.")
+            return None
+
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
             
-            # Usamos el puente dedicado a las alarmas
             action_id = "http:alarm_webhook_bridge"
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
-            rule_id = f"alarm_rule_{int(time.time())}_{new_alarm.get('variable')}"
+            
+            # Limpiar el nombre de la variable para que el ID de la regla sea válido en EMQX
+            safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
+            rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
             
             sql = (
                 f'SELECT * FROM "{topic}" '
@@ -174,8 +214,6 @@ async def delete_alarm_rule_in_emqx(emqx_rule_id: str) -> bool:
         print("[EMQX-DELETE-ERROR]", error)
         return False
 
-
-# --- ENDPOINTS ---
 
 @router.post("/alarm-rule")
 async def create_alarm_rule_endpoint(body: AlarmRuleBody, token: str = Header(None)):
