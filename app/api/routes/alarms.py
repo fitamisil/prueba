@@ -83,7 +83,7 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             connector_id = "http_conn_alarm"
             action_id = "alarm_webhook_bridge"
             
-            # 1. Asegurar primero que el conector HTTP exista
+            # 1. Asegurar el Conector HTTP
             connector_payload = {
                 "name": connector_id,
                 "type": "http",
@@ -95,8 +95,11 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             }
             await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
 
-            # 2. Payload exacto para la Acción HTTP de EMQX v5 (sin 'name' ni 'type' en la raíz)
+            # 2. Crear la Acción usando la estructura estándar de EMQX v5
             action_payload = {
+                "id": action_id,
+                "name": action_id,
+                "type": "http",
                 "connector": connector_id,
                 "parameters": {
                     "path": "/alarm-webhook",
@@ -107,12 +110,12 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "enable": True
             }
             
-            print(f"📦 [EMQX-DEBUG-ACTION] Enviando payload a /actions: {action_payload}")
+            print(f"📦 [EMQX-DEBUG-ACTION] Registrando acción en /actions: {action_payload}")
             
-            # En EMQX v5, las acciones se crean usando PUT o POST según el ID en la ruta
-            action_res = await httpx_client.post(f"{base_url}/actions", json={**action_payload, "name": action_id, "type": "http"}, headers=headers)
+            # Usamos POST directo a /actions. Si ya existe, hacemos un PUT al recurso específico de la acción.
+            action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
             if action_res.status_code not in [200, 201]:
-                action_res = await httpx_client.put(f"{base_url}/actions/http:{action_id}", json=action_payload, headers=headers)
+                action_res = await httpx_client.put(f"{base_url}/actions/{action_id}", json=action_payload, headers=headers)
             
             print(f"🌉 [EMQX-ALARM-ACTION] Status: {action_res.status_code} Resp: {action_res.text}")
 
