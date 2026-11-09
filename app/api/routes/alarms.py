@@ -81,9 +81,9 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             connector_id = "http_conn_alarm"
-            action_id = "alarm_webhook_bridge"
+            bridge_id = "alarm_webhook_bridge"
             
-            # 1. Asegurar el Conector HTTP
+            # 1. Crear el Conector HTTP primero para que no aparezca vacío en el dashboard
             connector_payload = {
                 "name": connector_id,
                 "type": "http",
@@ -93,37 +93,32 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                     "pool_size": 8
                 }
             }
-            await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
+            conn_res = await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
+            if conn_res.status_code not in [200, 201]:
+                await httpx_client.put(f"{base_url}/connectors/{connector_id}", json=connector_payload, headers=headers)
 
-            # 2. Crear la Acción usando la estructura estándar de EMQX v5
-            action_payload = {
-                "id": action_id,
-                "name": action_id,
+            # 2. Configurar el Bridge HTTP en EMQX v5 enlazado al conector creado
+            bridge_payload = {
+                "name": bridge_id,
                 "type": "http",
                 "connector": connector_id,
-                "parameters": {
-                    "path": "/alarm-webhook",
+                "config": {
+                    "url": f"{public_api_url}/alarm-webhook",
                     "method": "post",
                     "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
-                    "body": "${.}"
-                },
-                "enable": True
+                    "body": "${.}",
+                    "connect_timeout": "15s",
+                    "pool_size": 8
+                }
             }
             
-            print(f"📦 [EMQX-DEBUG-ACTION] Registrando acción en /actions: {action_payload}")
+            bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+            if bridge_res.status_code not in [200, 201]:
+                bridge_res = await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
             
-            # Usamos POST directo a /actions. Si ya existe, hacemos un PUT al recurso específico de la acción.
-            action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
-            if action_res.status_code not in [200, 201]:
-                action_res = await httpx_client.put(f"{base_url}/actions/{action_id}", json=action_payload, headers=headers)
-            
-            print(f"🌉 [EMQX-ALARM-ACTION] Status: {action_res.status_code} Resp: {action_res.text}")
+            print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
 
-            if action_res.status_code not in [200, 201]:
-                print(f"❌ [EMQX-FATAL] No se pudo crear la acción en EMQX: {action_res.text}")
-                return None
-
-            # 3. Construir y registrar la regla SQL de EMQX v5
+            # 3. Construir la regla SQL de EMQX v5
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
@@ -138,12 +133,10 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "id": rule_id,
                 "name": rule_id,
                 "sql": sql,
-                "actions": [f"http:{action_id}"],
+                "actions": [f"http:{bridge_id}"],
                 "description": f"Alarm rule for {new_alarm.get('variableFullName', '')}",
                 "enable": new_alarm.get("status", True)
             }
-
-            print(f"📦 [EMQX-DEBUG-RULE] Enviando regla a /rules: {rule_payload}")
 
             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
             if rule_res.status_code not in [200, 201]:
