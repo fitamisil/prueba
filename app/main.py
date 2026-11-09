@@ -101,7 +101,7 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Saver Webhook (Tal cual lo tenías funcionando)
+                # 1. Saver Webhook (Intacto, tal cual lo tenías funcionando)
                 saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
@@ -127,7 +127,7 @@ async def create_emqx_v5_webhook_rule():
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
                 await asyncio.sleep(1)
 
-                # 2. Alarm Webhook (Configurado en paralelo para asegurar su creación)
+                # 2. Alarm Webhook (Conector apuntando correctamente al ID completo del puente)
                 alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
@@ -148,7 +148,12 @@ async def create_emqx_v5_webhook_rule():
                 rule_alarm_payload = {
                     "id": "alarm_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
-                    "actions": ["http:alarm_webhook_bridge"]
+                    "actions": [{
+                        "name": "http:alarm_webhook_bridge",
+                        "parameters": {
+                            "connector": "http:alarm_webhook_bridge"
+                        }
+                    }]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
 
