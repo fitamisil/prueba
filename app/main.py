@@ -79,7 +79,7 @@ async def create_emqx_v5_webhook_rule():
         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
-    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+    base_url = f"{host}/api/v5" if host.startswith(("http://", "https://")) else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
@@ -101,7 +101,7 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Saver Webhook
+                # 1. Saver Webhook Bridge & Rule
                 saver_bridge_payload = {
                     "name": "saver_webhook_bridge",
                     "type": "http",
@@ -119,15 +119,16 @@ async def create_emqx_v5_webhook_rule():
                 if s_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
 
+                await asyncio.sleep(1)
+
                 rule_saver_payload = {
                     "id": "saver_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
                     "actions": ["saver_webhook_bridge"]
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
-                await asyncio.sleep(1)
 
-                # 2. Alarm Webhook
+                # 2. Alarm Webhook Bridge & Rule
                 alarm_bridge_payload = {
                     "name": "alarm_webhook_bridge",
                     "type": "http",
@@ -145,6 +146,8 @@ async def create_emqx_v5_webhook_rule():
                 if a_res.status_code not in [200, 201]:
                     await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
 
+                await asyncio.sleep(1)
+
                 rule_alarm_payload = {
                     "id": "alarm_webhook_rule",
                     "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
@@ -152,7 +155,7 @@ async def create_emqx_v5_webhook_rule():
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
 
-                print("✅ [EMQX-INIT] Ambas reglas y puentes configurados correctamente.")
+                print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
                 break
                 
         except Exception as error:
