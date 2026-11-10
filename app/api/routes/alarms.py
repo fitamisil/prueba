@@ -110,7 +110,7 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
             bridge_id = "alarm_webhook_bridge"
             
-            # 1. Configurar el Bridge HTTP directamente (idéntico al funcionamiento del registro/saver)
+            # Enviar la petición e imprimir la respuesta exacta del servidor EMQX
             bridge_payload = {
                 "name": f"http:{bridge_id}",
                 "type": "http",
@@ -124,14 +124,14 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 }
             }
             
-            # Intentar crear directamente; si ya existe, actualizar con PUT
             bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+            print(f"🔍 [EMQX-DEBUG-POST] Status: {bridge_res.status_code} | Body: {bridge_res.text}")
+            
             if bridge_res.status_code not in [200, 201]:
                 bridge_res = await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
-            
-            print(f"🌉 [EMQX-ALARM-BRIDGE] Status: {bridge_res.status_code} Resp: {bridge_res.text}")
+                print(f"🔍 [EMQX-DEBUG-PUT] Status: {bridge_res.status_code} | Body: {bridge_res.text}")
 
-            # 2. Construir la regla SQL de EMQX v5
+            # Construir la regla SQL de EMQX v5
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
