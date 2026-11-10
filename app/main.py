@@ -150,20 +150,11 @@ async def create_emqx_v5_webhook_rule():
                         "pool_size": 4
                     }
                 }
-
-                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
-                if a_res.status_code not in [200, 201]:
-                    await httpx_client.put(f"{base_url}/rules/alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
-
-                await asyncio.sleep(1)
-
-                rule_alarm_payload = {
-                    "id": "alarm_webhook_rule",
-                    "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
-                    "actions": ["http:alarm_webhook_bridge"]
-                }
-                await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
-
+                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+                if conn_res.status_code not in [200, 201]:
+                    conn_res = await httpx_client.put(f"{base_url}/rules/alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+                
+                
                 print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
                 break
 
