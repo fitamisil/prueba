@@ -532,16 +532,24 @@ async def get_small_charts_data(
 @app.post("/api/getdevicecredentials/")
 @app.post("/api/getmqttcredentials")
 @app.post("/api/getmqttcredentials/")
-async def get_device_credentials(body: dict): # <--- Cambiado a dict para aceptar cualquier JSON que envíe el frontend
-    dId = body.get("dId")
-    if not dId:
+async def get_device_credentials(request: Request, dId: Optional[str] = Query(None)):
+    # Intentar obtener el dId tanto del body JSON como de los parámetros de la URL
+    body_data = {}
+    try:
+        body_data = await request.json()
+    except Exception:
+        pass
+        
+    device_id = body_data.get("dId") or dId
+    
+    if not device_id:
         raise HTTPException(status_code=400, detail="Falta el campo dId")
         
-    device = await devices_collection.find_one({"dId": dId})
+    device = await devices_collection.find_one({"dId": device_id})
     if not device:
         raise HTTPException(status_code=401)
     userId = device.get("userId")
-    credentials = await get_device_mqtt_credentials(dId, userId)
+    credentials = await get_device_mqtt_credentials(device_id, userId)
     template = await templates_collection.find_one({"_id": ObjectId(device["templateId"])}) if "templateId" in device else None
     
     variables = []
@@ -557,7 +565,7 @@ async def get_device_credentials(body: dict): # <--- Cambiado a dict para acepta
     return {
         "username": credentials["username"],
         "password": credentials["password"],
-        "topic": f"{userId}/{dId}/",
+        "topic": f"{userId}/{device_id}/",
         "variables": variables
     }
 
