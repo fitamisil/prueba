@@ -107,14 +107,7 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 await httpx_client.put(f"{base_url}/actions/http:{action_name}", json=action_payload, headers=headers)
 
             # Construir y registrar la regla SQL específica para este usuario, dispositivo y variable
-            # Asegurar que tomamos el ID de la variable del sensor de forma robusta
-            sensor_variable = new_alarm.get('variable') or new_alarm.get('sensorId') or 'stlowTYcBD'
-
-            # Construir el tópico usando la variable correcta
-            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{sensor_variable}/sdata"
-            
-            # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/actdata"
-            # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
+            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
             
@@ -244,6 +237,254 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
         raise HTTPException(status_code=500, detail="No se pudo eliminar la regla en EMQX")
         
     return {"status": "success"}
+
+
+
+# from fastapi import APIRouter, HTTPException, Header, Query, Request, status
+# from pydantic import BaseModel
+# from typing import Optional, Any
+# from motor.motor_asyncio import AsyncIOMotorClient
+# import os
+# import httpx
+# import time
+# import re
+
+# router = APIRouter(prefix="", tags=["Alarms"])
+
+# # Obtener la conexión a MongoDB y la colección
+# MONGO_URL = os.getenv("MONGO_URI", "mongodb+srv://pigomezschneider_db_user:4WvulXjWAN5QBEBL@cluster0.rcvykvz.mongodb.net/?appName=Cluster0")
+# client = AsyncIOMotorClient(MONGO_URL)
+# database = client.iot_db
+# alarm_rules_collection = database.get_collection("alarmrules")
+
+# # Helper para autenticar token JWT
+# from jose import jwt, JWTError
+
+# SECRET_KEY = "clave-secreta-super-segura-iot-gl"
+# ALGORITHM = "HS256"
+
+# def get_user_id_from_token(token: str = Header(None)) -> str:
+#     if not token:
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token no proporcionado")
+#     try:
+#         if token.startswith("Bearer "):
+#             token = token.split(" ")[1]
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         email: str = payload.get("sub")
+#         if not email:
+#             raise HTTPException(status_code=401, detail="Token inválido")
+#         return email
+#     except JWTError:
+#         raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+
+# # --- MODELOS PYDANTIC ---
+# class AlarmRuleBody(BaseModel):
+#     newRule: dict
+
+# class AlarmStatusUpdateBody(BaseModel):
+#     rule: dict
+
+
+# # --- FUNCIONES DE EMQX v5 ---
+
+# async def get_emqx_v5_token():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         print("[EMQX-LOGIN-ERROR] EMQX_API_HOST no está definido en las variables de entorno.")
+#         return None, None
+        
+#     host = host.rstrip("/")
+#     base_url = f"{host}/api/v5" if not host.endswith("/api/v5") else host
+#     login_url = f"{base_url}/login"
+    
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    
+#     try:
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+#             res = await client.post(login_url, json={"username": username, "password": password})
+#             if res.status_code == 200:
+#                 token = res.json().get("token") or res.json().get("access_token")
+#                 return base_url, token
+#             else:
+#                 print(f"[EMQX-LOGIN-ERROR] Status {res.status_code} Resp: {res.text}")
+#     except Exception as e:
+#         print(f"[EMQX-LOGIN-EXCEPTION] {e}")
+#     return None, None
+
+
+# async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
+#     try:
+#         base_url, token = await get_emqx_v5_token()
+#         if not token:
+#             print("[EMQX-ALARM-ERROR] No se pudo autenticar con la API de EMQX v5")
+#             return None
+
+#         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+#         async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
+            
+#             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+#             action_name = "alarm_webhook_bridge"
+            
+#             # Acción HTTP v2 estándar de EMQX v5 (con la estructura de config requerida por el motor)
+#             action_payload = {
+#                 "name": action_name,
+#                 "type": "http",
+#                 "config": {
+#                     "url": f"{public_api_url}/alarm-webhook",
+#                     "method": "post",
+#                     "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
+#                     "body": "${.}",
+#                     "connect_timeout": "15s",
+#                     "request_timeout": "15s",
+#                     "pool_size": 4
+#                 }
+#             }
+            
+#             # Asegurar que la acción global exista o se actualice
+#             action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
+#             if action_res.status_code not in [200, 201]:
+#                 await httpx_client.put(f"{base_url}/actions/http:{action_name}", json=action_payload, headers=headers)
+
+#             # Construir y registrar la regla SQL específica para este usuario, dispositivo y variable
+#             # Asegurar que tomamos el ID de la variable del sensor de forma robusta
+#             sensor_variable = new_alarm.get('variable') or new_alarm.get('sensorId') or 'stlowTYcBD'
+
+#             # Construir el tópico usando la variable correcta
+#             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{sensor_variable}/sdata"
+            
+#             # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/actdata"
+#             # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
+#             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
+#             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
+            
+#             sql = (
+#                 f'SELECT * FROM "{topic}" '
+#                 f'WHERE payload.value {new_alarm.get("condition")} {new_alarm.get("value")} '
+#                 'AND is_not_null(payload.value)'
+#             )
+            
+#             # La regla apunta a la acción global compartida por todos los dispositivos/clientes
+#             rule_payload = {
+#                 "id": rule_id,
+#                 "name": rule_id,
+#                 "sql": sql,
+#                 "actions": [f"http:{action_name}"],
+#                 "description": f"Alarm rule for {new_alarm.get('variableFullName', '')}",
+#                 "enable": new_alarm.get("status", True)
+#             }
+
+#             rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+#             if rule_res.status_code not in [200, 201]:
+#                 rule_res = await httpx_client.put(f"{base_url}/rules/{rule_id}", json=rule_payload, headers=headers)
+
+#             print(f"⚙️ [EMQX-ALARM-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+
+#             if rule_res.status_code in [200, 201]:
+#                 mongo_rule = {
+#                     "userId": new_alarm.get("userId"),
+#                     "dId": new_alarm.get("dId"),
+#                     "emqxRuleId": rule_id,
+#                     "status": new_alarm.get("status", True),
+#                     "variable": new_alarm.get("variable"),
+#                     "variableFullName": new_alarm.get("variableFullName"),
+#                     "value": new_alarm.get("value"),
+#                     "condition": new_alarm.get("condition"),
+#                     "triggerTime": new_alarm.get("triggerTime"),
+#                     "createTime": int(time.time() * 1000)
+#                 }
+                
+#                 await alarm_rules_collection.insert_one(mongo_rule)
+#                 return rule_id
+#             else:
+#                 return None
+
+#     except Exception as error:
+#         print("[ALARM-CREATE-ERROR]", error)
+#         return None
+
+
+# async def update_alarm_rule_status_in_emqx(emqx_rule_id: str, status_val: bool) -> bool:
+#     try:
+#         base_url, token = await get_emqx_v5_token()
+#         if not token:
+#             return False
+        
+#         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+#         update_payload = {"enabled": status_val}
+
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+#             res = await httpx_client.put(f"{base_url}/rules/{emqx_rule_id}", json=update_payload, headers=headers)
+#             if res.status_code == 200:
+#                 await alarm_rules_collection.update_one(
+#                     {"emqxRuleId": emqx_rule_id}, 
+#                     {"$set": {"status": status_val}}
+#                 )
+#                 print("Alarm Rule Status Updated...")
+#                 return True
+#         return False
+#     except Exception as error:
+#         print("[ALARM-UPDATE-ERROR]", error)
+#         return False
+
+
+# async def delete_alarm_rule_in_emqx(emqx_rule_id: str) -> bool:
+#     try:
+#         base_url, token = await get_emqx_v5_token()
+#         if not token:
+#             return False
+        
+#         headers = {"Authorization": f"Bearer {token}"}
+#         async with httpx.AsyncClient(verify=False, timeout=15.0) as httpx_client:
+#             await httpx_client.delete(f"{base_url}/rules/{emqx_rule_id}", headers=headers)
+#             await alarm_rules_collection.delete_one({"emqxRuleId": emqx_rule_id})
+#             print("Alarm Rule Deleted...")
+#             return True
+#     except Exception as error:
+#         print("[ALARM-DELETE-ERROR]", error)
+#         return False
+
+
+# # --- ENDPOINTS ---
+
+# @router.post("/alarm-rule")
+# async def create_alarm_rule_endpoint(body: AlarmRuleBody, token: str = Header(None)):
+#     user_email = get_user_id_from_token(token)
+#     new_rule = body.newRule
+#     new_rule["userId"] = user_email
+    
+#     rule_id = await create_alarm_rule_in_emqx(new_rule)
+#     if not rule_id:
+#         raise HTTPException(status_code=500, detail="No se pudo crear la regla de alarma en EMQX")
+        
+#     return {"status": "success", "emqxRuleId": rule_id}
+
+# @router.put("/alarm-rule")
+# async def update_alarm_rule_status_endpoint(body: AlarmStatusUpdateBody, token: str = Header(None)):
+#     get_user_id_from_token(token)
+#     rule = body.rule
+#     emqx_rule_id = rule.get("emqxRuleId")
+#     status_val = rule.get("status")
+    
+#     if not emqx_rule_id:
+#         raise HTTPException(status_code=400, detail="Falta el emqxRuleId")
+        
+#     success = await update_alarm_rule_status_in_emqx(emqx_rule_id, status_val)
+#     if not success:
+#         raise HTTPException(status_code=500, detail="No se pudo actualizar el estado de la regla en EMQX")
+        
+#     return {"status": "success"}
+
+# @router.delete("/alarm-rule")
+# async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = Header(None)):
+#     get_user_id_from_token(token)
+    
+#     success = await delete_alarm_rule_in_emqx(emqxRuleId)
+#     if not success:
+#         raise HTTPException(status_code=500, detail="No se pudo eliminar la regla en EMQX")
+        
+#     return {"status": "success"}
 
 
 
