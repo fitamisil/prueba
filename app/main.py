@@ -79,7 +79,7 @@ async def create_emqx_v5_webhook_rule():
         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
-    base_url = f"{host}/api/v5" if host.startswith(("http://", "https://")) else f"http://{host}/api/v5"
+    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
 
@@ -90,77 +90,58 @@ async def create_emqx_v5_webhook_rule():
         try:
             async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
                 login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+                print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
+                
                 if login_res.status_code != 200:
                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
                     return
-
+                
                 token = login_res.json().get("token") or login_res.json().get("access_token")
                 if not token:
+                    print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
                     return
 
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Saver Webhook Bridge & Rule
-                saver_bridge_payload = {
-                    "name": "http:saver_webhook_bridge",
+                connector_payload = {
+                    "name": "saver_webhook_bridge",
                     "type": "http",
-                    "config": {
-                        "url": f"{public_api_url}/saver-webhook",
-                        "method": "post",
-                        "headers": {"token": EMQX_API_TOKEN},
-                        "body": "${.}",
-                        "connect_timeout": "15s",
-                        "pool_size": 8
-                    }
+                    "url": f"{public_api_url}/saver-webhook",
+                    "method": "post",
+                    "headers": {"token": EMQX_API_TOKEN},
+                    "body": "${.}",
+                    "connect_timeout": "15s",
+                    "pool_size": 8
                 }
 
-                s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
-                if s_res.status_code not in [200, 201]:
-                    await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
-
+                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+                if conn_res.status_code not in [200, 201]:
+                    conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
+                
+                print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
                 await asyncio.sleep(1)
 
-                rule_saver_payload = {
-                    "id": "saver_webhook_rule",
-                    "sql": "SELECT * FROM \"+/+/+/sdata\"",
+                rule_payload = {
+                    "id": "saver_webhook_rule", 
+                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
                     "actions": ["http:saver_webhook_bridge"]
                 }
-                await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
-                # 2. Alarm Webhook Bridge & Rule
-                alarm_bridge_payload = {
-                    "name": "http:alarm_webhook_bridge",
-                    "type": "http",
-                    "config": {
-                        "url": f"{public_api_url}/alarm-webhook",
-                        "method": "post",
-                        "headers": {"token": EMQX_API_TOKEN},
-                        "body": "${.}",
-                        "connect_timeout": "15s",
-                        "pool_size": 4
-                    }
-                }
+                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+                if rule_res.status_code not in [200, 201]:
+                    rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
 
-                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
-                if a_res.status_code not in [200, 201]:
-                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
-
-                await asyncio.sleep(1)
-
-                rule_alarm_payload = {
-                    "id": "alarm_webhook_rule",
-                    "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
-                    "actions": ["http:alarm_webhook_bridge"]
-                }
-                await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
-
-                print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
+                print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
                 break
                 
         except Exception as error:
-            print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
-            await asyncio.sleep(5)
+            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
+            if attempt < max_retries:
+                print("⏳ Reintentando conexión con EMQX en 5 segundos...")
+                await asyncio.sleep(5)
+            else:
+                print(f"❌ [EMQX-EXCEPTION CRITICAL] Se agotaron los reintentos.")
 
 # async def create_emqx_v5_webhook_rule():
 #     host = os.getenv("EMQX_API_HOST")
