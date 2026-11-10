@@ -139,7 +139,7 @@ async def create_emqx_v5_webhook_rule():
                 
                 # 2. Alarm Webhook Bridge & Rule
                 alarm_bridge_payload = {
-                    "name": "http:alarm_webhook_bridge",
+                    "name": "alarm_webhook_bridge",
                     "type": "http",
                     "config": {
                         "url": f"{public_api_url}/alarm-webhook",
