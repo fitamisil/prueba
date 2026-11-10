@@ -137,6 +137,40 @@ async def create_emqx_v5_webhook_rule():
                 print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
                 break
                 
+                2. Alarm Webhook Bridge & Rule
+                alarm_bridge_payload = {
+                    "name": "http:alarm_webhook_bridge",
+                    "type": "http",
+                    "config": {
+                        "url": f"{public_api_url}/alarm-webhook",
+                        "method": "post",
+                        "headers": {"token": EMQX_API_TOKEN},
+                        "body": "${.}",
+                        "connect_timeout": "15s",
+                        "pool_size": 4
+                    }
+                }
+
+                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
+                if a_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+
+                await asyncio.sleep(1)
+
+                rule_alarm_payload = {
+                    "id": "alarm_webhook_rule",
+                    "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
+                    "actions": ["http:alarm_webhook_bridge"]
+                }
+                await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
+
+                print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
+                break
+
+
+
+
+
         except Exception as error:
             print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
             if attempt < max_retries:
