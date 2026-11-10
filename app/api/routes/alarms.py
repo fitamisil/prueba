@@ -111,8 +111,8 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             sensor_variable = new_alarm.get('variable') or new_alarm.get('sensorId') or 'stlowTYcBD'
 
             # Construir el tópico usando la variable correcta
-            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{sensor_variable}/actdata"
-
+            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{sensor_variable}/sdata"
+            
             # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/actdata"
             # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
