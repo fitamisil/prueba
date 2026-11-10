@@ -107,7 +107,8 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 await httpx_client.put(f"{base_url}/actions/http:{action_name}", json=action_payload, headers=headers)
 
             # Construir y registrar la regla SQL específica para este usuario, dispositivo y variable
-            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
+            topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/actdata"
+            # topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
             safe_var = re.sub(r'[^a-zA-Z0-9_]', '_', str(new_alarm.get('variable', 'var')))
             rule_id = f"alarm_rule_{int(time.time())}_{safe_var}"
             
