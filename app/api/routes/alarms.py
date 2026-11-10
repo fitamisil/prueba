@@ -108,11 +108,11 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
         async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
             
             public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
-            action_id = "alarm_webhook_bridge"
+            bridge_id = "alarm_webhook_bridge"
             
-            # Usar el endpoint moderno /actions de EMQX v5
-            action_payload = {
-                "name": action_id,
+            # Usar la estructura plana de /bridges idéntica a la del saver
+            bridge_payload = {
+                "name": f"http:{bridge_id}",
                 "type": "http",
                 "config": {
                     "url": f"{public_api_url}/alarm-webhook",
@@ -124,12 +124,12 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 }
             }
             
-            action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
-            print(f"🔍 [EMQX-DEBUG-ACTION-POST] Status: {action_res.status_code} | Body: {action_res.text}")
+            bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
+            print(f"🔍 [EMQX-DEBUG-BRIDGE-POST] Status: {bridge_res.status_code} | Body: {bridge_res.text}")
             
-            if action_res.status_code not in [200, 201]:
-                action_res = await httpx_client.put(f"{base_url}/actions/http:{action_id}", json=action_payload, headers=headers)
-                print(f"🔍 [EMQX-DEBUG-ACTION-PUT] Status: {action_res.status_code} | Body: {action_res.text}")
+            if bridge_res.status_code not in [200, 201]:
+                bridge_res = await httpx_client.put(f"{base_url}/bridges/http:{bridge_id}", json=bridge_payload, headers=headers)
+                print(f"🔍 [EMQX-DEBUG-BRIDGE-PUT] Status: {bridge_res.status_code} | Body: {bridge_res.text}")
 
             # Construir la regla SQL de EMQX v5
             topic = f"{new_alarm.get('userId')}/{new_alarm.get('dId')}/{new_alarm.get('variable')}/sdata"
@@ -146,7 +146,7 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 "id": rule_id,
                 "name": rule_id,
                 "sql": sql,
-                "actions": [f"http:{action_id}"],
+                "actions": [f"http:{bridge_id}"],
                 "description": f"Alarm rule for {new_alarm.get('variableFullName', '')}",
                 "enable": new_alarm.get("status", True)
             }
