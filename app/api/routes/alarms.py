@@ -127,18 +127,35 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             if conn_res.status_code not in [200, 201]:
                 await httpx_client.put(f"{base_url}/connectors/http:{connector_id}", json=connector_payload, headers=headers)
 
-            # 2. Crear la Acción asociada a ese conector utilizando la ruta /actions
+            # Estructura exacta y limpia exigida por el esquema v2 de acciones de EMQX v5
             action_payload = {
                 "name": action_id,
                 "type": "http",
-                "connector": connector_id,
+                "connector": "",
                 "config": {
                     "method": "post",
-                    "path": "/alarm-webhook",
+                    "url": f"{public_api_url}/alarm-webhook",
                     "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
-                    "body": "${.}"
+                    "body": "${.}",
+                    "connect_timeout": "15s",
+                    "request_timeout": "15s",
+                    "pool_size": 4
                 }
             }
+
+
+            # # 2. Crear la Acción asociada a ese conector utilizando la ruta /actions
+            # action_payload = {
+            #     "name": action_id,
+            #     "type": "http",
+            #     "connector": connector_id,
+            #     "config": {
+            #         "method": "post",
+            #         "path": "/alarm-webhook",
+            #         "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
+            #         "body": "${.}"
+            #     }
+            # }
             
             action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
             print(f"🔍 [EMQX-DEBUG-ACTION-POST] Status: {action_res.status_code} | Body: {action_res.text}")
