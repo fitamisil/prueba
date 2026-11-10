@@ -73,7 +73,6 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST")
     if not host:
@@ -102,7 +101,7 @@ async def create_emqx_v5_webhook_rule():
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                # 1. Saver Webhook Bridge & Rule (Este se queda para guardar datos)
+                # 1. Saver Webhook Bridge & Rule
                 saver_bridge_payload = {
                     "name": "http:saver_webhook_bridge",
                     "type": "http",
@@ -129,12 +128,92 @@ async def create_emqx_v5_webhook_rule():
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
-                print("✅ [EMQX-INIT] Puente y regla de guardado configurados correctamente.")
+                # 2. Alarm Webhook Bridge Global (El puente HTTP general para todas las alarmas)
+                alarm_bridge_payload = {
+                    "name": "http:alarm_webhook_bridge",
+                    "type": "http",
+                    "config": {
+                        "url": f"{public_api_url}/alarm-webhook",
+                        "method": "post",
+                        "headers": {"token": EMQX_API_TOKEN},
+                        "body": "${.}",
+                        "connect_timeout": "15s",
+                        "pool_size": 4
+                    }
+                }
+
+                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
+                if a_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+
+                print("✅ [EMQX-INIT] Puentes de datos y alarmas configurados correctamente en el arranque.")
                 break
                 
         except Exception as error:
             print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
             await asyncio.sleep(5)
+
+# async def create_emqx_v5_webhook_rule():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
+#         return
+    
+#     base_url = f"{host}/api/v5" if host.startswith(("http://", "https://")) else f"http://{host}/api/v5"
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+
+#     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
+
+#     max_retries = 3
+#     for attempt in range(1, max_retries + 1):
+#         try:
+#             async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
+#                 login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+#                 if login_res.status_code != 200:
+#                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
+#                     return
+                
+#                 token = login_res.json().get("token") or login_res.json().get("access_token")
+#                 if not token:
+#                     return
+
+#                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+#                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+
+#                 # 1. Saver Webhook Bridge & Rule (Este se queda para guardar datos)
+#                 saver_bridge_payload = {
+#                     "name": "http:saver_webhook_bridge",
+#                     "type": "http",
+#                     "config": {
+#                         "url": f"{public_api_url}/saver-webhook",
+#                         "method": "post",
+#                         "headers": {"token": EMQX_API_TOKEN},
+#                         "body": "${.}",
+#                         "connect_timeout": "15s",
+#                         "pool_size": 8
+#                     }
+#                 }
+
+#                 s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
+#                 if s_res.status_code not in [200, 201]:
+#                     await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
+
+#                 await asyncio.sleep(1)
+
+#                 rule_saver_payload = {
+#                     "id": "saver_webhook_rule",
+#                     "sql": "SELECT * FROM \"+/+/+/sdata\"",
+#                     "actions": ["http:saver_webhook_bridge"]
+#                 }
+#                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
+
+#                 print("✅ [EMQX-INIT] Puente y regla de guardado configurados correctamente.")
+#                 break
+                
+#         except Exception as error:
+#             print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
+#             await asyncio.sleep(5)
 
 
 # esta andaba-----------------------------------------------------------------------------
