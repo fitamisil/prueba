@@ -153,7 +153,7 @@ async def create_emqx_v5_webhook_rule():
 
                 a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
                 if a_res.status_code not in [200, 201]:
-                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+                    await httpx_client.put(f"{base_url}/rules/alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
 
                 await asyncio.sleep(1)
 
