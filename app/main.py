@@ -123,9 +123,15 @@ async def create_emqx_v5_webhook_rule():
 
                 rule_saver_payload = {
                     "id": "saver_webhook_rule",
-                    "sql": "SELECT * FROM \"+/+/+/sdata\"",
+                    "sql": "SELECT * FROM \"+/+/+/+/sdata\"",
                     "actions": ["http:saver_webhook_bridge"]
                 }
+
+                # rule_saver_payload = {
+                #     "id": "saver_webhook_rule",
+                #     "sql": "SELECT * FROM \"+/+/+/sdata\"",
+                #     "actions": ["http:saver_webhook_bridge"]
+                # }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
                 # 2. Alarm Webhook Bridge Global (El puente HTTP general para todas las alarmas)
