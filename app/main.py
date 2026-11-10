@@ -93,7 +93,7 @@ async def create_emqx_v5_webhook_rule():
                 if login_res.status_code != 200:
                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
                     return
-                
+
                 token = login_res.json().get("token") or login_res.json().get("access_token")
                 if not token:
                     return
