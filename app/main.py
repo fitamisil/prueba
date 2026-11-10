@@ -526,18 +526,22 @@ async def get_small_charts_data(
 
 @app.post("/getdevicecredentials")
 @app.post("/getdevicecredentials/")
-@app.post("/getmqttcredentials")          # <--- Añadida
-@app.post("/getmqttcredentials/")         # <--- Añadida
+@app.post("/getmqttcredentials")
+@app.post("/getmqttcredentials/")
 @app.post("/api/getdevicecredentials")
 @app.post("/api/getdevicecredentials/")
-@app.post("/api/getmqttcredentials")      # <--- Añadida
-@app.post("/api/getmqttcredentials/")     # <--- Añadida
-async def get_device_credentials(body: DeviceCredentialsBody):
-    device = await devices_collection.find_one({"dId": body.dId})
+@app.post("/api/getmqttcredentials")
+@app.post("/api/getmqttcredentials/")
+async def get_device_credentials(body: dict): # <--- Cambiado a dict para aceptar cualquier JSON que envíe el frontend
+    dId = body.get("dId")
+    if not dId:
+        raise HTTPException(status_code=400, detail="Falta el campo dId")
+        
+    device = await devices_collection.find_one({"dId": dId})
     if not device:
         raise HTTPException(status_code=401)
     userId = device.get("userId")
-    credentials = await get_device_mqtt_credentials(body.dId, userId)
+    credentials = await get_device_mqtt_credentials(dId, userId)
     template = await templates_collection.find_one({"_id": ObjectId(device["templateId"])}) if "templateId" in device else None
     
     variables = []
@@ -553,7 +557,7 @@ async def get_device_credentials(body: DeviceCredentialsBody):
     return {
         "username": credentials["username"],
         "password": credentials["password"],
-        "topic": f"{userId}/{body.dId}/",
+        "topic": f"{userId}/{dId}/",
         "variables": variables
     }
 
