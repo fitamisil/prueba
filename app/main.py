@@ -128,7 +128,7 @@ async def create_emqx_v5_webhook_rule():
                 }
                 await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
-                # 2. Alarm Webhook Bridge & Rule (Intacto como estaba)
+                # 2. Alarm Webhook Bridge & Rule
                 alarm_bridge_payload = {
                     "name": "http:alarm_webhook_bridge",
                     "type": "http",
