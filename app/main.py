@@ -73,15 +73,19 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
+
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST")
     if not host:
         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
         return
     
-    base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+    base_url = f"{host}/api/v5" if host.startswith(("http://", "https://")) else f"http://{host}/api/v5"
     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+    
+    # Token limpio tal como lo hacías en Node.js con process.env.EMQX_API_TOKEN
+    api_token = os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx").strip('"\'')
 
     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
 
@@ -90,58 +94,148 @@ async def create_emqx_v5_webhook_rule():
         try:
             async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
                 login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
-                print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
-                
                 if login_res.status_code != 200:
                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
                     return
                 
                 token = login_res.json().get("token") or login_res.json().get("access_token")
                 if not token:
-                    print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
                     return
 
                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
 
-                connector_payload = {
-                    "name": "saver_webhook_bridge",
+                # 1. Saver Webhook Bridge & Rule (Estructura limpia para EMQX v5)
+                saver_bridge_payload = {
+                    "name": "http:saver_webhook_bridge",
                     "type": "http",
-                    "url": f"{public_api_url}/saver-webhook",
-                    "method": "post",
-                    "headers": {"token": EMQX_API_TOKEN},
-                    "body": "${.}",
-                    "connect_timeout": "15s",
-                    "pool_size": 8
+                    "config": {
+                        "url": f"{public_api_url}/saver-webhook",
+                        "method": "post",
+                        "headers": {"token": api_token},
+                        "body": "${.}",
+                        "connect_timeout": "15s",
+                        "pool_size": 8
+                    }
                 }
 
-                conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
-                if conn_res.status_code not in [200, 201]:
-                    conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
-                
-                print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
+                s_res = await httpx_client.post(f"{base_url}/bridges", json=saver_bridge_payload, headers=headers)
+                if s_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=saver_bridge_payload, headers=headers)
+
                 await asyncio.sleep(1)
 
-                rule_payload = {
-                    "id": "saver_webhook_rule", 
-                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+                rule_saver_payload = {
+                    "id": "saver_webhook_rule",
+                    "sql": "SELECT * FROM \"+/+/+/sdata\"",
                     "actions": ["http:saver_webhook_bridge"]
                 }
+                await httpx_client.post(f"{base_url}/rules", json=rule_saver_payload, headers=headers)
 
-                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
-                if rule_res.status_code not in [200, 201]:
-                    rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
+                # 2. Alarm Webhook Bridge & Rule
+                alarm_bridge_payload = {
+                    "name": "http:alarm_webhook_bridge",
+                    "type": "http",
+                    "config": {
+                        "url": f"{public_api_url}/alarm-webhook",
+                        "method": "post",
+                        "headers": {"token": api_token},
+                        "body": "${.}",
+                        "connect_timeout": "15s",
+                        "pool_size": 4
+                    }
+                }
 
-                print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+                a_res = await httpx_client.post(f"{base_url}/bridges", json=alarm_bridge_payload, headers=headers)
+                if a_res.status_code not in [200, 201]:
+                    await httpx_client.put(f"{base_url}/bridges/http:alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
+
+                await asyncio.sleep(1)
+
+                rule_alarm_payload = {
+                    "id": "alarm_webhook_rule",
+                    "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
+                    "actions": ["http:alarm_webhook_bridge"]
+                }
+                await httpx_client.post(f"{base_url}/rules", json=rule_alarm_payload, headers=headers)
+
+                print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
                 break
                 
         except Exception as error:
-            print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
-            if attempt < max_retries:
-                print("⏳ Reintentando conexión con EMQX en 5 segundos...")
-                await asyncio.sleep(5)
-            else:
-                print(f"❌ [EMQX-EXCEPTION CRITICAL] Se agotaron los reintentos.")
+            print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
+            await asyncio.sleep(5)
+
+
+# async def create_emqx_v5_webhook_rule():
+#     host = os.getenv("EMQX_API_HOST")
+#     if not host:
+#         print("[EMQX-ERROR] La variable EMQX_API_HOST no está definida.")
+#         return
+    
+#     base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+#     username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#     password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+
+#     print(f"🔌 [EMQX-INIT] Intentando conectar a la API de EMQX en: {base_url}/login")
+
+#     max_retries = 3
+#     for attempt in range(1, max_retries + 1):
+#         try:
+#             async with httpx.AsyncClient(verify=False, timeout=30.0) as httpx_client:
+#                 login_res = await httpx_client.post(f"{base_url}/login", json={"username": username, "password": password})
+#                 print(f"🔑 [EMQX-LOGIN] Status code recibido: {login_res.status_code}")
+                
+#                 if login_res.status_code != 200:
+#                     print(f"❌ [EMQX-ERROR] Login rechazado: {login_res.text}")
+#                     return
+                
+#                 token = login_res.json().get("token") or login_res.json().get("access_token")
+#                 if not token:
+#                     print("❌ [EMQX-ERROR] Login OK pero no se encontró el token.")
+#                     return
+
+#                 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+#                 public_api_url = os.getenv("PUBLIC_API_URL", "https://prueba-tzir.onrender.com")
+
+#                 connector_payload = {
+#                     "name": "saver_webhook_bridge",
+#                     "type": "http",
+#                     "url": f"{public_api_url}/saver-webhook",
+#                     "method": "post",
+#                     "headers": {"token": EMQX_API_TOKEN},
+#                     "body": "${.}",
+#                     "connect_timeout": "15s",
+#                     "pool_size": 8
+#                 }
+
+#                 conn_res = await httpx_client.post(f"{base_url}/bridges", json=connector_payload, headers=headers)
+#                 if conn_res.status_code not in [200, 201]:
+#                     conn_res = await httpx_client.put(f"{base_url}/bridges/http:saver_webhook_bridge", json=connector_payload, headers=headers)
+                
+#                 print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
+#                 await asyncio.sleep(1)
+
+#                 rule_payload = {
+#                     "id": "saver_webhook_rule", 
+#                     "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+#                     "actions": ["http:saver_webhook_bridge"]
+#                 }
+
+#                 rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+#                 if rule_res.status_code not in [200, 201]:
+#                     rule_res = await httpx_client.put(f"{base_url}/rules/saver_webhook_rule", json=rule_payload, headers=headers)
+
+#                 print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+#                 break
+                
+#         except Exception as error:
+#             print(f"⚠️ [EMQX-WARNING] Intento {attempt}/{max_retries} fallido por {type(error).__name__} {error}")
+#             if attempt < max_retries:
+#                 print("⏳ Reintentando conexión con EMQX en 5 segundos...")
+#                 await asyncio.sleep(5)
+#             else:
+#                 print(f"❌ [EMQX-EXCEPTION CRITICAL] Se agotaron los reintentos.")
 
 # async def create_emqx_v5_webhook_rule():
 #     host = os.getenv("EMQX_API_HOST")
@@ -774,179 +868,259 @@ async def get_mqtt_credentials_for_reconnection(token: str = Header(None)):
         "password": os.getenv("EMQX_NODE_SUPERUSER_PASSWORD", "public")
     }
 
+
 @app.post("/saver-webhook")
-@app.post("/api/saver-webhook")
-async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
+async def saver_webhook(request: Request, token: str = Header(None)):
     if token != EMQX_API_TOKEN:
-        raise HTTPException(status_code=404)
-
-    try:
-        request_data = await request.json()
-    except Exception:
-        return {"status": "error", "message": "Invalid JSON"}
-
-    topic = request_data.get("topic", "")
-    data_user_id = request_data.get("userId")
-    splitted_topic = topic.split("/")
+        raise HTTPException(status_code=404, detail="Unauthorized")
     
-    if len(splitted_topic) >= 3:
-        user_id = splitted_topic[0] if not data_user_id else data_user_id
-        dId = splitted_topic[1]
-        variable = splitted_topic[2]
+    try:
+        body = await request.json()
+        topic = body.get("topic", "")
+        splitted_topic = topic.split("/")
         
-        device_found = await devices_collection.find_one({"dId": dId})
-        
-        if device_found:
-            real_user_id = device_found.get("userId", user_id)
-            payload_val = request_data.get("payload", {})
+        if len(splitted_topic) >= 3:
+            dId = splitted_topic[1]
+            variable = splitted_topic[2]
+            user_id = body.get("userId")
             
-            current_value = 0.0
-            try:
-                if isinstance(payload_val, dict):
-                    current_value = float(payload_val.get("value", 0))
-                elif isinstance(payload_val, str):
-                    parsed_payload = json.loads(payload_val)
-                    current_value = float(parsed_payload.get("value", 0))
-                else:
-                    current_value = float(payload_val)
-            except Exception:
-                return {"status": "error", "message": "Invalid payload value"}
-
-            last_record = await data_collection.find_one(
-                {"dId": dId, "variable": variable},
-                sort=[("time", -1)]
-            )
-
-            if last_record:
-                last_value = float(last_record.get("value", 0))
-                percent_change = abs((current_value - last_value) / last_value) * 100 if last_value != 0 else (100.0 if current_value != 0 else 0.0)
-                if percent_change < 0.05:
-                    return {"status": "filtered", "message": "Variation below 0.05%"}
-
-            timestamp = int(time.time() * 1000)
-            await data_collection.insert_one({
-                "userId": real_user_id,
-                "dId": dId,
-                "variable": variable,
-                "value": current_value,
-                "time": timestamp,
-                "path": f"/{real_user_id}/{dId}/{timestamp}/"
-            })
+            device_count = await devices_collection.count_documents({"dId": dId, "userId": user_id})
             
-    return {"status": "success"}
+            if device_count == 1:
+                await data_collection.insert_one({
+                    "userId": user_id,
+                    "dId": dId,
+                    "variable": variable,
+                    "value": body.get("payload", {}).get("value"),
+                    "time": int(time.time() * 1000)
+                })
+                print("Data created")
+                
+        return {"status": "success"}
+    except Exception as error:
+        print(error)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
 @app.post("/alarm-webhook")
-@app.post("/api/alarm-webhook")
-async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
-    if token and token != EMQX_API_TOKEN:
-        raise HTTPException(status_code=403, detail="Unauthorized webhook")
-
-    try:
-        request_data = await request.json()
-    except Exception:
-        return {"status": "error", "message": "Invalid JSON"}
-
-    topic = request_data.get("topic", "")
-    userId = request_data.get("userId")
-    payload = request_data.get("payload", {})
+async def alarm_webhook(request: Request, token: str = Header(None)):
+    if token != EMQX_API_TOKEN:
+        raise HTTPException(status_code=404, detail="Unauthorized")
     
-    current_value = 0.0
     try:
-        if isinstance(payload, dict):
-            current_value = float(payload.get("value", 0))
-        elif isinstance(payload, str):
-            parsed_payload = json.loads(payload)
-            current_value = float(parsed_payload.get("value", 0))
+        incoming_alarm = await request.json()
+        emqx_rule_id = incoming_alarm.get("emqxRuleId")
+        
+        await alarm_rules_collection.update_one(
+            {"emqxRuleId": emqx_rule_id},
+            {"$inc": {"counter": 1}}
+        )
+        
+        last_notif = await notifications_collection.find(
+            {"dId": incoming_alarm.get("dId"), "emqxRuleId": emqx_rule_id}
+        ).sort("time", -1).limit(1).to_list(length=1)
+        
+        if not last_notif:
+            print("FIRST TIME ALARM")
+            new_notif = incoming_alarm.copy()
+            new_notif["time"] = int(time.time() * 1000)
+            new_notif["readed"] = False
+            await notifications_collection.insert_one(new_notif)
         else:
-            current_value = float(payload)
-    except Exception:
-        current_value = 0.0
-
-    splitted_topic = topic.split("/")
-    dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
-    variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
-
-    device_found = await devices_collection.find_one({"dId": dId})
-    real_user_id = device_found.get("userId") if device_found else userId
-    if not real_user_id:
-        real_user_id = "unknown_user"
-
-    alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable})
-    variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
-    condition = alarm_rule.get("condition", "") if alarm_rule else ""
-    target_value = alarm_rule.get("value", "") if alarm_rule else ""
-
-    alert_message = f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}"
-    timestamp = int(time.time() * 1000)
-
-    notification_doc = {
-        "userId": real_user_id,
-        "dId": dId,
-        "variable": variable,
-        "variableFullName": variable_full_name,
-        "value": current_value,
-        "condition": condition,
-        "targetValue": target_value,
-        "message": alert_message,
-        "leida": False,
-        "time": timestamp
-    }
-
-    # Guardado seguro en MongoDB evitando duplicados de ID
-    try:
-        await notifications_collection.insert_one(notification_doc)
-    except Exception:
-        if "_id" in notification_doc:
-            del notification_doc["_id"]
-        try:
-            await notifications_collection.insert_one(notification_doc)
-        except Exception:
-            pass
-
-    # 🚀 PUBLICAR EN MQTT HACIA EMQX PARA QUE NUXT LO RECIBA EN TIEMPO REAL
-    try:
-        host = os.getenv("EMQX_API_HOST")
-        if host:
-            base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
-            username = os.getenv("EMQX_DASHBOARD_USER", "admin")
-            password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+            last_time = last_notif[0].get("time", 0)
+            last_notif_to_now_mins = (int(time.time() * 1000) - last_time) / 1000 / 60
+            trigger_time = incoming_alarm.get("triggerTime", 0)
             
-            async with httpx.AsyncClient(verify=False, timeout=5.0) as client_http:
-                login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
-                if login_res.status_code == 200:
-                    emqx_token = login_res.json().get("token") or login_res.json().get("access_token")
-                    if emqx_token:
-                        notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
-                        publish_payload = {
-                            "topic": notif_topic,
-                            "payload": json.dumps({
-                                "msg": alert_message,
-                                "variable": variable,
-                                "value": current_value,
-                                "time": timestamp
-                            }),
-                            "qos": 0,
-                            "retain": False
-                        }
+            if last_notif_to_now_mins > trigger_time:
+                print("TRIGGERED")
+                new_notif = incoming_alarm.copy()
+                new_notif["time"] = int(time.time() * 1000)
+                new_notif["readed"] = False
+                await notifications_collection.insert_one(new_notif)
+                
+        return {"status": "success"}
+    except Exception as error:
+        print(error)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
-                        headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
-                        await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
-    except Exception as pub_error:
-        print(f"⚠️ [MQTT-PUBLISH-WARNING] No se pudo publicar la alarma en el broker: {pub_error}")
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(create_emqx_v5_webhook_rule())
 
-    print(f"🚨 [ALARM-TRIGGERED] Alerta registrada y publicada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
 
-    return {
-        "status": "success", 
-        "message": "Alarm processed, logged and published successfully",
-        "alarm": {
-            "active": True,
-            "msg": alert_message,
-            "variable": variable,
-            "value": current_value
-        }
-    }
+# @app.post("/saver-webhook")
+# @app.post("/api/saver-webhook")
+# async def saver_webhook(request: Request, token: Optional[str] = Header(None)):
+#     if token != EMQX_API_TOKEN:
+#         raise HTTPException(status_code=404)
+
+#     try:
+#         request_data = await request.json()
+#     except Exception:
+#         return {"status": "error", "message": "Invalid JSON"}
+
+#     topic = request_data.get("topic", "")
+#     data_user_id = request_data.get("userId")
+#     splitted_topic = topic.split("/")
+    
+#     if len(splitted_topic) >= 3:
+#         user_id = splitted_topic[0] if not data_user_id else data_user_id
+#         dId = splitted_topic[1]
+#         variable = splitted_topic[2]
+        
+#         device_found = await devices_collection.find_one({"dId": dId})
+        
+#         if device_found:
+#             real_user_id = device_found.get("userId", user_id)
+#             payload_val = request_data.get("payload", {})
+            
+#             current_value = 0.0
+#             try:
+#                 if isinstance(payload_val, dict):
+#                     current_value = float(payload_val.get("value", 0))
+#                 elif isinstance(payload_val, str):
+#                     parsed_payload = json.loads(payload_val)
+#                     current_value = float(parsed_payload.get("value", 0))
+#                 else:
+#                     current_value = float(payload_val)
+#             except Exception:
+#                 return {"status": "error", "message": "Invalid payload value"}
+
+#             last_record = await data_collection.find_one(
+#                 {"dId": dId, "variable": variable},
+#                 sort=[("time", -1)]
+#             )
+
+#             if last_record:
+#                 last_value = float(last_record.get("value", 0))
+#                 percent_change = abs((current_value - last_value) / last_value) * 100 if last_value != 0 else (100.0 if current_value != 0 else 0.0)
+#                 if percent_change < 0.05:
+#                     return {"status": "filtered", "message": "Variation below 0.05%"}
+
+#             timestamp = int(time.time() * 1000)
+#             await data_collection.insert_one({
+#                 "userId": real_user_id,
+#                 "dId": dId,
+#                 "variable": variable,
+#                 "value": current_value,
+#                 "time": timestamp,
+#                 "path": f"/{real_user_id}/{dId}/{timestamp}/"
+#             })
+            
+#     return {"status": "success"}
+
+
+# @app.post("/alarm-webhook")
+# @app.post("/api/alarm-webhook")
+# async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
+#     if token and token != EMQX_API_TOKEN:
+#         raise HTTPException(status_code=403, detail="Unauthorized webhook")
+
+#     try:
+#         request_data = await request.json()
+#     except Exception:
+#         return {"status": "error", "message": "Invalid JSON"}
+
+#     topic = request_data.get("topic", "")
+#     userId = request_data.get("userId")
+#     payload = request_data.get("payload", {})
+    
+#     current_value = 0.0
+#     try:
+#         if isinstance(payload, dict):
+#             current_value = float(payload.get("value", 0))
+#         elif isinstance(payload, str):
+#             parsed_payload = json.loads(payload)
+#             current_value = float(parsed_payload.get("value", 0))
+#         else:
+#             current_value = float(payload)
+#     except Exception:
+#         current_value = 0.0
+
+#     splitted_topic = topic.split("/")
+#     dId = splitted_topic[1] if len(splitted_topic) >= 2 else request_data.get("dId", "unknown")
+#     variable = splitted_topic[2] if len(splitted_topic) >= 3 else request_data.get("variable", "unknown")
+
+#     device_found = await devices_collection.find_one({"dId": dId})
+#     real_user_id = device_found.get("userId") if device_found else userId
+#     if not real_user_id:
+#         real_user_id = "unknown_user"
+
+#     alarm_rule = await alarm_rules_collection.find_one({"dId": dId, "variable": variable})
+#     variable_full_name = alarm_rule.get("variableFullName", variable) if alarm_rule else variable
+#     condition = alarm_rule.get("condition", "") if alarm_rule else ""
+#     target_value = alarm_rule.get("value", "") if alarm_rule else ""
+
+#     alert_message = f"Alerta en {variable_full_name}: valor actual {current_value} cumple condición {condition} {target_value}"
+#     timestamp = int(time.time() * 1000)
+
+#     notification_doc = {
+#         "userId": real_user_id,
+#         "dId": dId,
+#         "variable": variable,
+#         "variableFullName": variable_full_name,
+#         "value": current_value,
+#         "condition": condition,
+#         "targetValue": target_value,
+#         "message": alert_message,
+#         "leida": False,
+#         "time": timestamp
+#     }
+
+#     # Guardado seguro en MongoDB evitando duplicados de ID
+#     try:
+#         await notifications_collection.insert_one(notification_doc)
+#     except Exception:
+#         if "_id" in notification_doc:
+#             del notification_doc["_id"]
+#         try:
+#             await notifications_collection.insert_one(notification_doc)
+#         except Exception:
+#             pass
+
+#     # 🚀 PUBLICAR EN MQTT HACIA EMQX PARA QUE NUXT LO RECIBA EN TIEMPO REAL
+#     try:
+#         host = os.getenv("EMQX_API_HOST")
+#         if host:
+#             base_url = f"{host}/api/v5" if host.startswith("http://") or host.startswith("https://") else f"http://{host}/api/v5"
+#             username = os.getenv("EMQX_DASHBOARD_USER", "admin")
+#             password = os.getenv("EMQX_DASHBOARD_PASSWORD", "virus123")
+            
+#             async with httpx.AsyncClient(verify=False, timeout=5.0) as client_http:
+#                 login_res = await client_http.post(f"{base_url}/login", json={"username": username, "password": password})
+#                 if login_res.status_code == 200:
+#                     emqx_token = login_res.json().get("token") or login_res.json().get("access_token")
+#                     if emqx_token:
+#                         notif_topic = f"{real_user_id}/{dId}/{variable}/notif"
+#                         publish_payload = {
+#                             "topic": notif_topic,
+#                             "payload": json.dumps({
+#                                 "msg": alert_message,
+#                                 "variable": variable,
+#                                 "value": current_value,
+#                                 "time": timestamp
+#                             }),
+#                             "qos": 0,
+#                             "retain": False
+#                         }
+
+#                         headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
+#                         await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
+#     except Exception as pub_error:
+#         print(f"⚠️ [MQTT-PUBLISH-WARNING] No se pudo publicar la alarma en el broker: {pub_error}")
+
+#     print(f"🚨 [ALARM-TRIGGERED] Alerta registrada y publicada para el usuario {real_user_id} en dispositivo {dId}, variable {variable}")
+
+#     return {
+#         "status": "success", 
+#         "message": "Alarm processed, logged and published successfully",
+#         "alarm": {
+#             "active": True,
+#             "msg": alert_message,
+#             "variable": variable,
+#             "value": current_value
+#         }
+#     }
 
 
 
