@@ -73,7 +73,6 @@ def get_user_email_from_token(token: str = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-
 async def create_emqx_v5_webhook_rule():
     host = os.getenv("EMQX_API_HOST")
     if not host:
@@ -162,7 +161,6 @@ async def create_emqx_v5_webhook_rule():
         except Exception as error:
             print(f"⚠️ [EMQX-WARNING] Error en intento {attempt}: {error}")
             await asyncio.sleep(5)
-
 
 # async def create_emqx_v5_webhook_rule():
 #     host = os.getenv("EMQX_API_HOST")
