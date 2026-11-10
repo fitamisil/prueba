@@ -111,8 +111,9 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             bridge_id = "alarm_webhook_bridge"
             
             # Usar la estructura plana de /bridges idéntica a la del saver
+
             bridge_payload = {
-                "name": f"http:{bridge_id}",
+                "name": "alarm_webhook_bridge",
                 "type": "http",
                 "config": {
                     "url": f"{public_api_url}/alarm-webhook",
@@ -123,6 +124,19 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                     "pool_size": 4
                 }
             }
+
+            # bridge_payload = {
+            #     "name": f"http:{bridge_id}",
+            #     "type": "http",
+            #     "config": {
+            #         "url": f"{public_api_url}/alarm-webhook",
+            #         "method": "post",
+            #         "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
+            #         "body": "${.}",
+            #         "connect_timeout": "15s",
+            #         "pool_size": 4
+            #     }
+            # }
             
             bridge_res = await httpx_client.post(f"{base_url}/bridges", json=bridge_payload, headers=headers)
             print(f"🔍 [EMQX-DEBUG-BRIDGE-POST] Status: {bridge_res.status_code} | Body: {bridge_res.text}")
