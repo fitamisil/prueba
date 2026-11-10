@@ -111,14 +111,15 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
             connector_name = "alarm_webhook_connector"
             action_name = "alarm_webhook_bridge"
             
-            # 1. Crear el Conector HTTP base de forma explícita
+            # 1. Crear el Conector HTTP base (parámetros dentro de "config")
             connector_payload = {
                 "name": connector_name,
                 "type": "http",
-                "url": public_api_url,
-                "connect_timeout": "15s",
-                "request_timeout": "15s",
-                "pool_size": 4
+                "config": {
+                    "url": public_api_url,
+                    "connect_timeout": "15s",
+                    "pool_size": 4
+                }
             }
             
             conn_res = await httpx_client.post(f"{base_url}/connectors", json=connector_payload, headers=headers)
@@ -128,15 +129,17 @@ async def create_alarm_rule_in_emqx(new_alarm: dict) -> Optional[str]:
                 conn_put_res = await httpx_client.put(f"{base_url}/connectors/http:{connector_name}", json=connector_payload, headers=headers)
                 print(f"🔍 [EMQX-CONNECTOR-PUT] Status: {conn_put_res.status_code} | Resp: {conn_put_res.text}")
 
-            # 2. Crear la Acción enlazada directamente al conector creado
+            # 2. Crear la Acción vinculada al conector (parámetros dentro de "config")
             action_payload = {
                 "name": action_name,
                 "type": "http",
                 "connector": connector_name,
-                "method": "post",
-                "path": "/alarm-webhook",
-                "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
-                "body": "${.}"
+                "config": {
+                    "method": "post",
+                    "path": "/alarm-webhook",
+                    "headers": {"token": os.getenv("EMQX_API_TOKEN", "tu_token_secreto_emqx")},
+                    "body": "${.}"
+                }
             }
             
             action_res = await httpx_client.post(f"{base_url}/actions", json=action_payload, headers=headers)
