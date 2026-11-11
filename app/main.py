@@ -154,7 +154,21 @@ async def create_emqx_v5_webhook_rule():
                 if conn_res.status_code not in [200, 201]:
                     conn_res = await httpx_client.put(f"{base_url}/rules/alarm_webhook_bridge", json=alarm_bridge_payload, headers=headers)
                 
-                
+                print(f"🌉 [EMQX-CONNECTOR] Status: {conn_res.status_code} Resp: {conn_res.text}")
+                await asyncio.sleep(1)
+
+                rule_payload = {
+                    "id": "saver_webhook_rule", 
+                    "sql": "SELECT * FROM \"+/+/+/sdata\"", 
+                    "actions": ["http:saver_webhook_bridge"]
+                }
+
+                rule_res = await httpx_client.post(f"{base_url}/rules", json=rule_payload, headers=headers)
+                if rule_res.status_code not in [200, 201]:
+                    rule_res = await httpx_client.put(f"{base_url}/rules/alarm_webhook_rule", json=rule_payload, headers=headers)
+
+                print(f"⚙️ [EMQX-RULE] Status: {rule_res.status_code} Resp: {rule_res.text}")
+
                 print("✅ [EMQX-INIT] Puentes y reglas configurados correctamente.")
                 break
 
