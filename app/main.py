@@ -796,10 +796,12 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
                             "qos": 0,
                             "retain": False
                         }
-
                         headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
-                        await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
-                      
+                        pub_res = await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
+                        print(f"📡 [EMQX PUBLISH RESP] Status: {pub_res.status_code} | Body: {pub_res.text}")
+                        # headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
+                        # await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
+                        
                         # headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
                         # await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
     except Exception as pub_error:
