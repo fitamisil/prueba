@@ -163,10 +163,10 @@ async def create_emqx_v5_webhook_rule():
 
                 alarm_rule_payload = {
                     "id": "alarm_webhook_rule",
-                    "sql": "SELECT * FROM \"+/+/+/sdata\" WHERE payload.alarm = true",
+                    "sql": "SELECT * FROM "+/+/+/sdata" WHERE payload.alarm = true OR payload.alarm = 1 OR payload.alarm = "true"",
                     "actions": ["http:alarm_webhook_bridge"]
                 }
-
+                 
                 alarm_rule_res = await httpx_client.post(f"{base_url}/rules", json=alarm_rule_payload, headers=headers)
                 if alarm_rule_res.status_code not in [200, 201]:
                     alarm_rule_res = await httpx_client.put(f"{base_url}/rules/alarm_webhook_rule", json=alarm_rule_payload, headers=headers)
@@ -797,7 +797,7 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
                             "retain": False
                         }
                         headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
-                        pub_res = await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
+                        pub_res = await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers)
                         print(f"📡 [EMQX PUBLISH RESP] Status: {pub_res.status_code} | Body: {pub_res.text}")
                         # headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
                         # await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
