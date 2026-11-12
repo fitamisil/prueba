@@ -162,10 +162,10 @@ async def create_emqx_v5_webhook_rule():
                 await asyncio.sleep(1)
 
                 alarm_rule_payload = {
-                    "id": "alarm_webhook_rule",
-                    "sql": "SELECT * FROM "+/+/+/sdata" WHERE payload.alarm = true OR payload.alarm = 1 OR payload.alarm = "true"",
-                    "actions": ["http:alarm_webhook_bridge"]
-                }
+                        "id": "alarm_webhook_rule",
+                        "sql": """SELECT * FROM "+/+/+/sdata" WHERE payload.alarm = true OR payload.alarm = 1 OR payload.alarm = 'true'""",
+                        "actions": ["http:alarm_webhook_bridge"]
+                    }
                  
                 alarm_rule_res = await httpx_client.post(f"{base_url}/rules", json=alarm_rule_payload, headers=headers)
                 if alarm_rule_res.status_code not in [200, 201]:
