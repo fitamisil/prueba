@@ -798,7 +798,8 @@ async def alarm_webhook(request: Request, token: Optional[str] = Header(None)):
                         }
 
                         headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
-                        await client_http.post(f"{base_url}/publish", json=publish_payload, headers=headers)
+                        await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
+                      
                         # headers = {"Authorization": f"Bearer {emqx_token}", "Content-Type": "application/json"}
                         # await client_http.post(f"{base_url}/mqtt/publish", json=publish_payload, headers=headers)
     except Exception as pub_error:
