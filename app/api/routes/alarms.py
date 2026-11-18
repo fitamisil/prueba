@@ -238,7 +238,21 @@ async def delete_alarm_rule_endpoint(emqxRuleId: str = Query(...), token: str = 
         
     return {"status": "success"}
 
-
+@router.get("/alarm-rules")
+async def get_alarm_rules_endpoint(token: str = Header(None)):
+    user_email = get_user_id_from_token(token)
+    try:
+        # Filtramos las reglas por el email del usuario logueado en MongoDB
+        rules_cursor = alarm_rules_collection.find({"userId": user_email})
+        rules = await rules_cursor.to_list(length=100)
+        
+        # Convertimos el ObjectId de MongoDB a string para que FastAPI lo serialice bien en JSON
+        for rule in rules:
+            rule["_id"] = str(rule["_id"])
+            
+        return {"status": "success", "rules": rules}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # from fastapi import APIRouter, HTTPException, Header, Query, Request, status
 # from pydantic import BaseModel
